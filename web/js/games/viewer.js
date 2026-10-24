@@ -48,6 +48,16 @@ export class ViewerGame {
         g.fillStyle = '#fff'; g.fillText(txt, p.x + 13, p.y + 4);
       }
     }
+    // hand tracker palms (solid) vs. wrist fallback (hollow)
+    for (const side of ['L', 'R']) {
+      const h = body.handScreen(side); if (!h.ok) continue;
+      const w = videoToWindow(h.x, h.y), r = Math.max(14, scale * 0.04);
+      g.strokeStyle = side === 'L' ? '#ff3b5c' : '#2fa8ff'; g.lineWidth = 4;
+      g.fillStyle = h.src === 'hand' ? (side === 'L' ? 'rgba(255,59,92,.45)' : 'rgba(47,168,255,.45)') : 'transparent';
+      g.beginPath(); g.arc(w.x, w.y, r, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.fillStyle = '#fff'; g.font = 'bold 14px system-ui'; g.textAlign = 'center';
+      g.fillText(`${side === 'L' ? 'left' : 'right'} hand${h.src === 'hand' ? '' : ' (wrist)'}`, w.x, w.y - r - 6); g.textAlign = 'left';
+    }
     const s = pose.stats;
     const lines = [`round trip ${s.latency.toFixed(0)} ms`, `GPU inference ${s.infer.toFixed(1)} ms`, `pose rate ${s.fps.toFixed(0)} fps`,
       `shoulder width ${body.scale ? (body.scale * 100).toFixed(1) : '–'}% of frame`];

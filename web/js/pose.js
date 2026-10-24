@@ -45,6 +45,13 @@ export class PoseClient {
     this._fpsCount = 0; this._fpsT = performance.now();
     this.listeners = new Set();
     this.aspect = 16 / 9;
+    this.handsOn = true;
+  }
+
+  // Hand tracking costs CPU on the Spark; games that don't need it switch it off.
+  setHands(on) {
+    this.handsOn = on;
+    if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ hands: on }));
   }
 
   async startCamera(deviceId) {
@@ -69,7 +76,7 @@ export class PoseClient {
     url = url || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
     const ws = new WebSocket(url);
     ws.binaryType = 'arraybuffer';
-    ws.onopen = () => { this.stats.connected = true; this.pending.clear(); };
+    ws.onopen = () => { this.stats.connected = true; this.pending.clear(); ws.send(JSON.stringify({ hands: this.handsOn })); };
     ws.onclose = () => {
       this.stats.connected = false;
       if (this.ws === ws) setTimeout(() => this.connect(url), 1000);
@@ -137,6 +144,10 @@ export class Body {
     this.fx = KP_FILTERS(); this.fy = KP_FILTERS();
     this.pts = Array.from({ length: 17 }, () => ({ x: 0.5, y: 0.5, vx: 0, vy: 0, c: 0, seen: -1e9 }));
     this.present = false; this.lastSeen = -1e9; this.lastT = 0;
+    // Hands from the dedicated hand tracker (palm centre), per side.
+    this.hands = { L: { x: 0.5, y: 0.5, vx: 0, vy: 0, seen: -1e9 }, R: { x: 0.5, y: 0.5, vx: 0, vy: 0, seen: -1e9 } };
+    this.hf = { L: [new OneEuro(1.5, 2.0), new OneEuro(1.5, 2.0)], R: [new OneEuro(1.5, 2.0), new OneEuro(1.5, 2.0)] };
+    this.rawHands = [];
     this.center = null; this.scale = null; // body frame, in screen units (x scaled by aspect)
     this.frameLocked = false;
     this.predict = 0.6; // fraction of measured latency to extrapolate (0 = off)
@@ -158,6 +169,66 @@ export class Body {
       pt.x = nx; pt.y = ny; pt.vx = this.fx[i].dx; pt.vy = this.fy[i].dx; pt.seen = t;
     }
     this._updateFrame();
+    if (msg.hands) this._updateHands(msg.hands, p, msg.ht / 1000);
+  }
+
+  // Match detected hands to the player's left/right using where the pose
+  // expects each hand to be (wrist pushed a bit past the forearm).
+  _updateHands(hands, person, t) {
+    const [bx1, by1, bx2, by2] = person.box, padX = (bx2 - bx1) * 0.6, padY = (by2 - by1) * 0.3;
+    const cand = hands.filter(h => h.palm[0] > bx1 - padX && h.palm[0] < bx2 + padX && h.palm[1] > by1 - padY && h.palm[1] < by2 + padY)
+      .map(h => ({ x: 1 - h.palm[0], y: h.palm[1], tip: [1 - h.tip[0], h.tip[1]] }));
+    this.rawHands = cand;
+    const expect = {};
+    for (const [side, w, e] of [['L', KP.leftWrist, KP.leftElbow], ['R', KP.rightWrist, KP.rightElbow]]) {
+      const W = this.pts[w], E = this.pts[e];
+      if (W.c >= 0.3) expect[side] = E.c >= 0.3 ? { x: W.x + (W.x - E.x) * 0.35, y: W.y + (W.y - E.y) * 0.35 } : { x: W.x, y: W.y };
+    }
+    const a = this.client.aspect;
+    const cost = (h, side) => {
+      const ex = expect[side];
+      if (ex) return Math.hypot((h.x - ex.x) * a, h.y - ex.y);
+      // no wrist: player's left hand shows on the left of the mirror
+      const ls = this.pts[KP.leftShoulder], rs = this.pts[KP.rightShoulder], mid = (ls.x + rs.x) / 2;
+      return (side === 'L') === (h.x < mid) ? 0.3 : 1;
+    };
+    let assign = {};
+    if (cand.length === 1) {
+      assign[cost(cand[0], 'L') <= cost(cand[0], 'R') ? 'L' : 'R'] = cand[0];
+    } else if (cand.length >= 2) {
+      const [h0, h1] = cand;
+      assign = cost(h0, 'L') + cost(h1, 'R') <= cost(h0, 'R') + cost(h1, 'L') ? { L: h0, R: h1 } : { L: h1, R: h0 };
+    }
+    for (const side of ['L', 'R']) {
+      const h = assign[side]; if (!h) continue;
+      // a hand far from where that arm can reach is probably someone else's
+      const ex = expect[side];
+      if (ex && Math.hypot((h.x - ex.x) * a, h.y - ex.y) > (this.scale || 0.3) * 1.6) continue;
+      const st = this.hands[side];
+      st.x = this.hf[side][0].filter(h.x, t); st.y = this.hf[side][1].filter(h.y, t);
+      st.vx = this.hf[side][0].dx; st.vy = this.hf[side][1].dx; st.seen = t; st.tip = h.tip;
+    }
+  }
+
+  // Hand position (screen space). Uses the hand tracker when it has the hand,
+  // otherwise falls back to the wrist estimate from the pose.
+  handScreen(side) {
+    const st = this.hands[side];
+    if (this.lastT - st.seen < 0.25) {
+      const ahead = Math.min(0.12, this.client.stats.latency / 1000) * this.predict;
+      return { x: st.x + st.vx * ahead, y: st.y + st.vy * ahead, ok: true, src: 'hand' };
+    }
+    const w = this.screen(side === 'L' ? KP.leftWrist : KP.rightWrist), e = this.screen(side === 'L' ? KP.leftElbow : KP.rightElbow);
+    if (!w.ok) return { x: 0, y: 0, ok: false };
+    return e.ok ? { x: w.x + (w.x - e.x) * 0.35, y: w.y + (w.y - e.y) * 0.35, ok: true, src: 'wrist' } : { ...w, src: 'wrist' };
+  }
+
+  // Hand position in body space.
+  handBody(side) {
+    const s = this.handScreen(side);
+    if (!s.ok || !this.center) return { x: 0, y: 0, ok: false };
+    const a = this.client.aspect;
+    return { x: (s.x * a - this.center.x) / this.scale, y: (this.center.y - s.y) / this.scale, ok: true, src: s.src };
   }
 
   _updateFrame() {

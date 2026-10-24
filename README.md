@@ -2,15 +2,16 @@
 
 Full-body motion games in the browser, powered by GPU pose estimation on a separate machine.
 
-Your laptop or phone captures the camera and streams small JPEG frames over a WebSocket to a GPU box (built for an NVIDIA DGX Spark / GB10). The box runs YOLO11-pose and sends back 17 body keypoints per frame. The browser smooths them (One Euro filter), predicts ahead to hide network latency, and drives the games.
+Your laptop or phone captures the camera and streams small JPEG frames over a WebSocket to a GPU box (built for an NVIDIA DGX Spark / GB10). The box runs YOLO11-pose for 17 body keypoints and, around each wrist it finds, MediaPipe's hand landmarker for precise hand positions. The browser smooths them (One Euro filter), predicts ahead to hide network latency, and drives the games.
 
 ## Games
 
-- **Beat Slicer**: a Beat Saber–style rhythm game where **every block is a note**. Your forearms become lightsabers (red = left, blue = right); touch a block as it arrives and it plays its note, so hitting them all performs the song. Block height follows pitch. There are nine public-domain songs, each with its own instrument: Twinkle Twinkle, Mary Had a Little Lamb, Ode to Joy, Jingle Bells, Happy Birthday, Canon in D, Für Elise, Korobeiniki (Tetris), and Hall of the Mountain King. Difficulty sets the tempo; Hard and Expert add bombs and require the matching saber colour. Songs live in `web/js/songs.js` in a simple text notation, so adding more is easy.
-- **Test: Easy Slicer**: Beat Slicer slowed right down. Sparse blocks, no bombs, can't fail.
-- **Joint Viewer**: your camera with the detected skeleton, per-joint confidence, and latency stats.
+- **Beat Slicer**: a Beat Saber–style rhythm game where **every block is a note**. Your forearms become lightsabers (red = left, blue = right); touch a block as it arrives and it plays its note, so hitting them all performs the song. Block height follows pitch. It has 18 public-domain songs, each with its own instrument (Twinkle Twinkle, Frère Jacques, Ode to Joy, Amazing Grace, Greensleeves, Minuet in G, Für Elise, Korobeiniki, Hall of the Mountain King, and more), defined in `web/js/songs.js` in a simple text notation. Difficulty sets the tempo; Hard and Expert add bombs and require the matching saber colour.
+- **Hole in the Wall**: walls fly at you with a body-shaped hole cut out. Strike the pose, step sideways, or crouch to fit. Your glowing silhouette turns green or red as the wall approaches, and the fit has to match both the hole and the pose.
+- **Whack-a-Mole**: moles pop up around you, drawn over your live camera image, and your hands are the mallets. Gold moles score extra; bombs cost points. 60 seconds.
+- **Joint Viewer**: your camera with the detected skeleton, hands, per-joint confidence, and latency stats.
 
-Menus are hands-free: hover a hand over a button to select it. Esc pauses; walking out of frame auto-pauses.
+Menus are hands-free: hover a hand over a button to select it. The cursor follows your hand (MediaPipe hand tracking), so it keeps working even when your hand hides your forearm. Esc pauses; walking out of frame auto-pauses.
 
 ## Running
 
@@ -18,10 +19,11 @@ Menus are hands-free: hover a hand over a button to select it. Esc pauses; walki
 conda create -n posearcade python=3.12 -y && conda activate posearcade
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130   # match your CUDA
 pip install -r requirements.txt
+pip install --no-deps mediapipe absl-py flatbuffers   # hand tracking
 ./run.sh
 ```
 
-The first run downloads the pose model and creates a self-signed TLS certificate in `certs/`.
+The first run downloads the pose and hand models and creates a self-signed TLS certificate in `certs/`.
 
 Then, on any device on the same network, open:
 
@@ -54,6 +56,6 @@ web/js/pose.js       camera capture, streaming, One Euro smoothing, body coordin
 web/js/audio.js      WebAudio instrument voices, chord backing, SFX
 web/js/songs.js      melodies + chords in text notation, parser
 web/js/main.js       menus, hand-hover selection, game loop, pause/results
-web/js/games/        saber.js (Beat Slicer), viewer.js (Joint Viewer)
+web/js/games/        saber.js (Beat Slicer), wall.js (Hole in the Wall), mole.js (Whack-a-Mole), viewer.js (Joint Viewer)
 web/vendor/          three.js r169 (MIT)
 ```

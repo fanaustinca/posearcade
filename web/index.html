@@ -36,6 +36,8 @@
     background: var(--panel); color: var(--text); border: 2px solid var(--line); min-width: 170px; text-align: center; }
   .btn:hover, .btn.hot { border-color: rgba(255,255,255,.6); }
   .btn .fill { position: absolute; left: 0; bottom: 0; height: 5px; width: 0; background: var(--gold); }
+  #songRow { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; width: min(1200px, 100%); }
+  .btn.song { padding: 10px 12px; font-size: 16px; min-width: 0; }
   .btn.sel { border-color: var(--gold); box-shadow: 0 0 18px rgba(255, 209, 102, .35); }
   #status { position: fixed; top: 12px; left: 12px; display: flex; gap: 8px; z-index: 20; font-size: 13px; flex-wrap: wrap; }
   .pill { padding: 5px 10px; border-radius: 99px; background: rgba(0,0,0,.55); border: 1px solid var(--line); color: var(--dim); }
@@ -98,7 +100,8 @@
   <p class="sub">Hover a hand over a card to pick it, or click.</p>
   <div class="row">
     <div class="card" data-game="saber"><div class="ic">⚔️</div><div class="t">Beat Slicer</div><div class="d">Your forearms are lightsabers. Each block is a note: touch it as it arrives and you play the melody. Red = left, blue = right.</div><div class="fill"></div></div>
-    <div class="card" data-game="test"><div class="ic">🧪</div><div class="t">Test: Easy Slicer</div><div class="d">Beat Slicer, slowed way down. Few blocks, no bombs, can't fail. Good for checking that tracking works.</div><div class="fill"></div></div>
+    <div class="card" data-game="wall"><div class="ic">🧱</div><div class="t">Hole in the Wall</div><div class="d">Walls fly at you with a body-shaped hole. Strike the pose, step sideways, or crouch to fit through.</div><div class="fill"></div></div>
+    <div class="card" data-game="mole"><div class="ic">🔨</div><div class="t">Whack-a-Mole</div><div class="d">Moles pop up all around you. Bop them with your hands, grab the gold ones, dodge the bombs. 60 seconds.</div><div class="fill"></div></div>
     <div class="card" data-game="viewer"><div class="ic">🦴</div><div class="t">Joint Viewer</div><div class="d">Just your camera with the detected joints drawn over it, plus latency and confidence.</div><div class="fill"></div></div>
   </div>
 </section>

@@ -116,6 +116,38 @@ const VOICES = {
     g.connect(lp).connect(musicBus);
     osc('sawtooth', f, t, g, end); osc('triangle', f / 2, t, g, end);
   },
+  brass(m, t, dur, v) {
+    const f = mtof(m), { g, end } = held(t, dur, 0.13 * v, 0.03, 0.12);
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 1.5;
+    lp.frequency.setValueAtTime(400, t); lp.frequency.linearRampToValueAtTime(2600, t + 0.06);
+    lp.frequency.setTargetAtTime(1500, t + 0.08, 0.2);
+    g.connect(lp).connect(musicBus);
+    osc('sawtooth', f, t, g, end, -4); osc('sawtooth', f, t, g, end, 5);
+  },
+  flute(m, t, dur, v) {
+    const f = mtof(m + 12), { g, end } = held(t, dur, 0.2 * v, 0.04, 0.12);
+    g.connect(musicBus);
+    const vib = ctx.createOscillator(), vg = ctx.createGain(); vib.frequency.value = 5; vg.gain.value = 12;
+    vib.connect(vg); vib.start(t + 0.1); track(vib, end);
+    vg.connect(osc('sine', f, t, g, end).detune);
+    const g2 = ctx.createGain(); g2.gain.value = 0.12; g2.connect(g); osc('sine', f * 2, t, g2, end);
+    const n = ctx.createBufferSource(); n.buffer = noise; // breath
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = f * 2; bp.Q.value = 4;
+    const ng = ctx.createGain(); env(ng, t, 0.01, 0.06 * v, 0.12);
+    n.connect(bp).connect(ng).connect(musicBus); n.start(t, Math.random() * 0.5); track(n, t + 0.2);
+  },
+  harpsi(m, t, dur, v) {
+    const f = mtof(m), { g, end } = struck(t, dur, 0.22 * v, 0.9);
+    const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 180;
+    g.connect(hp).connect(musicBus);
+    osc('sawtooth', f, t, g, end); osc('square', f * 2, t, g, end, 4);
+  },
+  banjo(m, t, dur, v) {
+    const f = mtof(m), { g, end } = struck(t, dur, 0.35 * v, 0.5);
+    const bp = ctx.createBiquadFilter(); bp.type = 'peaking'; bp.frequency.value = 2200; bp.gain.value = 9; bp.Q.value = 1;
+    g.connect(bp).connect(musicBus);
+    osc('sawtooth', f, t, g, end); osc('triangle', f * 2, t, g, end, 6);
+  },
 };
 
 // One melody note (a hit block). A late hit still sounds, just late.

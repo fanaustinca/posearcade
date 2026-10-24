@@ -5,7 +5,6 @@ import { parseSong } from '../songs.js';
 
 // tempo scales the song itself; speed is how fast blocks fly in.
 export const SABER_DIFFS = {
-  Test:   { tempo: 0.6,  speed: 8,  outer: false, bombs: 0,    fail: false, matchColor: false },
   Easy:   { tempo: 0.8,  speed: 11, outer: false, bombs: 0,    fail: false, matchColor: false },
   Normal: { tempo: 1.0,  speed: 14, outer: true,  bombs: 0.04, fail: true,  matchColor: false },
   Hard:   { tempo: 1.15, speed: 17, outer: true,  bombs: 0.07, fail: true,  matchColor: true },

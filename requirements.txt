@@ -4,3 +4,4 @@ ultralytics
 fastapi
 uvicorn[standard]
 opencv-python-headless
+# hand tracking (install with --no-deps to avoid a second OpenCV build): pip install --no-deps mediapipe absl-py flatbuffers

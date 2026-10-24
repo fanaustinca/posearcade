@@ -3,6 +3,8 @@ import { PoseClient, Body, KP, BONES } from './pose.js';
 import { ctx as audio, sfx } from './audio.js';
 import { SaberGame, SABER_DIFFS } from './games/saber.js';
 import { ViewerGame } from './games/viewer.js';
+import { WallGame } from './games/wall.js';
+import { MoleGame } from './games/mole.js';
 import { SONGS } from './songs.js';
 
 const $ = (s) => document.querySelector(s);
@@ -47,19 +49,19 @@ function msg(text, ms = 0) {
 const cursors = { L: $('#curL'), R: $('#curR') };
 const dwell = new Map(); // element -> ms hovered
 const DWELL_MS = 1100;
-function handCursor(wrist, elbow) {
-  const w = body.body(wrist), e = body.body(elbow);
-  if (!w.ok) return null;
-  // reach slightly past the wrist toward the palm
-  const hx = w.x + (e.ok ? (w.x - e.x) * 0.25 : 0), hy = w.y + (e.ok ? (w.y - e.y) * 0.25 : 0);
-  return { x: innerWidth / 2 + hx * innerWidth / 5.2, y: innerHeight / 2 - (hy - 0.15) * innerHeight / 3.6 };
+// Cursor follows the hand tracker's palm position (falls back to the wrist
+// estimate), so it works even when the forearm is hidden behind the hand.
+function handCursor(side) {
+  const h = body.handBody(side);
+  if (!h.ok) return null;
+  return { x: innerWidth / 2 + h.x * innerWidth / 5.2, y: innerHeight / 2 - (h.y - 0.15) * innerHeight / 3.6 };
 }
 function updateMenuHands(dt) {
   const menuOn = !game || paused || screen === 'scrResult';
   const targets = menuOn ? [...document.querySelectorAll('.screen.on .card, .screen.on .btn')] : [];
   const hovered = new Set();
-  for (const [k, wr, el] of [['L', KP.leftWrist, KP.leftElbow], ['R', KP.rightWrist, KP.rightElbow]]) {
-    const c = menuOn && body.present && screen !== 'scrStart' ? handCursor(wr, el) : null;
+  for (const k of ['L', 'R']) {
+    const c = menuOn && body.present && screen !== 'scrStart' ? handCursor(k) : null;
     const cur = cursors[k];
     if (!c) { cur.style.display = 'none'; continue; }
     cur.style.display = 'block'; cur.style.left = c.x + 'px'; cur.style.top = c.y + 'px';
@@ -83,12 +85,12 @@ function clearFills() { document.querySelectorAll('.fill').forEach(f => f.style.
 // ---------- menus ----------
 let chosenSong = SONGS[0], chosenDiff = 'Easy', lastGame = null;
 const songRow = $('#songRow'), diffRow = $('#diffRow');
-for (const s of SONGS) {
-  const b = document.createElement('div'); b.className = 'btn'; b.dataset.song = s.id;
+for (const s of [...SONGS].sort((a, b) => a.level - b.level)) {
+  const b = document.createElement('div'); b.className = 'btn song'; b.dataset.song = s.id;
   b.innerHTML = `${s.name}<div class="kbd">${'★'.repeat(s.level)}${'☆'.repeat(3 - s.level)}</div><div class="fill"></div>`;
   songRow.appendChild(b);
 }
-for (const d of Object.keys(SABER_DIFFS).filter(d => d !== 'Test')) {
+for (const d of Object.keys(SABER_DIFFS)) {
   const b = document.createElement('div'); b.className = 'btn'; b.dataset.diff = d;
   b.innerHTML = `${d}<div class="fill"></div>`; diffRow.appendChild(b);
 }
@@ -100,8 +102,8 @@ refreshSel();
 function activate(el) {
   sfx.ding(el.dataset.game ? 79 : 84);
   if (el.dataset.game === 'saber') { show('scrSongs'); return; }
-  if (el.dataset.game === 'test') { lastGame = { kind: 'saber', song: SONGS[0], diff: 'Test' }; startCalib(); return; }
   if (el.dataset.game === 'viewer') { lastGame = { kind: 'viewer' }; endGame(); launch(); return; }
+  if (el.dataset.game) { lastGame = { kind: el.dataset.game }; startCalib(); return; }
   if (el.dataset.song) { chosenSong = SONGS.find(s => s.id === el.dataset.song); refreshSel(); return; }
   if (el.dataset.diff) { chosenDiff = el.dataset.diff; refreshSel(); return; }
   switch (el.dataset.act) {
@@ -160,9 +162,11 @@ function startCalib() {
   show('scrCalib');
   calib = { held: 0, count: -1 };
   $('#calibCount').textContent = '';
-  $('#calibText').textContent = lastGame.kind === 'saber'
-    ? 'Stand so your head, shoulders, and both arms are visible. Raise both hands above your shoulders to start.'
-    : 'Step back so your upper body fits the frame. Raise both hands above your shoulders to start.';
+  $('#calibText').textContent = {
+    saber: 'Stand so your head, shoulders, and both arms are visible. Raise both hands above your shoulders to start.',
+    wall: 'Stand in the middle of the frame with room to step left and right. Raise both hands above your shoulders to start.',
+    mole: 'Stand back so you can reach out to the sides and overhead. Raise both hands above your shoulders to start.',
+  }[lastGame.kind] || 'Raise both hands above your shoulders to start.';
 }
 function updateCalib(dt) {
   const lw = body.body(KP.leftWrist), rw = body.body(KP.rightWrist);
@@ -183,9 +187,13 @@ function launch() {
   show('none');
   body.frameLocked = true;
   const opts = { ...lastGame };
-  game = lastGame.kind === 'saber' ? new SaberGame(app, opts) : new ViewerGame(app, opts);
+  const Game = { saber: SaberGame, wall: WallGame, mole: MoleGame, viewer: ViewerGame }[lastGame.kind];
+  game = new Game(app, opts);
   hud.el.classList.toggle('on', lastGame.kind !== 'viewer');
-  glCanvas.style.display = lastGame.kind === 'saber' ? '' : 'none'; hud.score(0, 0, 1); hud.progress(0);
+  const is3d = lastGame.kind === 'saber' || lastGame.kind === 'wall';
+  glCanvas.style.display = is3d ? '' : 'none';
+  overlay.style.display = is3d ? 'none' : '';
+  pose.setHands(lastGame.kind !== 'saber'); hud.score(0, 0, 1); hud.progress(0);
   paused = false; absentFor = 0;
   game.start();
 }
@@ -195,9 +203,11 @@ function endGame() {
   hud.el.classList.remove('on'); paused = false;
   renderer.clear(); octx.clearRect(0, 0, innerWidth, innerHeight);
   bgvideo.style.opacity = 0; glCanvas.style.display = 'none';
+  pose.setHands(true); // menus use the hand cursors
 }
 function finishGame(res) {
   const g = game; game = null; g?.dispose();
+  pose.setHands(true);
   hud.el.classList.remove('on');
   octx.clearRect(0, 0, innerWidth, innerHeight); renderer.clear();
   bgvideo.style.opacity = 0;
