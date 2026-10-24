@@ -13,7 +13,8 @@ export const SABER_DIFFS = {
 };
 
 // Comfortable reach zone in shoulder-width units (0 = shoulder line).
-const LANES = [-2.1, -1.1, 1.1, 2.1];
+// No centre lanes: the nearest block is outside the shoulders (shoulders sit at ±0.5).
+const LANES = [-2.4, -1.5, 1.5, 2.4];
 // Block height range: low notes just under shoulder height, high notes overhead.
 const Y_MIN = -0.2, Y_MAX = 1.8;
 const SABER_LEN = 1.5, HIT_R = 0.55;
