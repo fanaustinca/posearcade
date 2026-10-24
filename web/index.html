@@ -97,7 +97,7 @@
   <h1 style="font-size:clamp(36px,6vw,80px)">POSE ARCADE</h1>
   <p class="sub">Hover a hand over a card to pick it, or click.</p>
   <div class="row">
-    <div class="card" data-game="saber"><div class="ic">⚔️</div><div class="t">Beat Slicer</div><div class="d">Your forearms are lightsabers. Slice blocks to the beat in the arrow's direction. Red = left, blue = right.</div><div class="fill"></div></div>
+    <div class="card" data-game="saber"><div class="ic">⚔️</div><div class="t">Beat Slicer</div><div class="d">Your forearms are lightsabers. Each block is a note: touch it as it arrives and you play the melody. Red = left, blue = right.</div><div class="fill"></div></div>
     <div class="card" data-game="test"><div class="ic">🧪</div><div class="t">Test: Easy Slicer</div><div class="d">Beat Slicer, slowed way down. Few blocks, no bombs, can't fail. Good for checking that tracking works.</div><div class="fill"></div></div>
     <div class="card" data-game="viewer"><div class="ic">🦴</div><div class="t">Joint Viewer</div><div class="d">Just your camera with the detected joints drawn over it, plus latency and confidence.</div><div class="fill"></div></div>
   </div>
@@ -107,9 +107,7 @@
   <h2>Beat Slicer</h2>
   <div class="row" id="songRow"></div>
   <div class="row" id="diffRow"></div>
-  <div class="row">
-    <label class="sub" style="pointer-events:auto">…or your own song: <input type="file" id="songFile" accept="audio/*"></label>
-  </div>
+  <p class="sub">Every block is a note — hit them all and you play the song.</p>
   <div class="row"><div class="btn" data-act="menu">◀ Back</div><div class="btn" data-act="play" style="border-color:var(--gold)">▶ Play</div></div>
 </section>
 

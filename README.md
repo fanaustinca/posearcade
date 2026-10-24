@@ -6,7 +6,7 @@ Your laptop or phone captures the camera and streams small JPEG frames over a We
 
 ## Games
 
-- **Beat Slicer**: a Beat Saber–style rhythm game. Your forearms become lightsabers (red = left, blue = right); just hold a saber where a block arrives and it gets cut. There is no backing track: each block carries the next slice of the song, so the music only plays when you hit the blocks. It has four built-in songs (pre-rendered in `web/songs/`, regenerate with `tools/render_songs.cjs`) plus **load your own audio file**, which gets chopped at its detected beats. Difficulties: Easy, Normal, Hard and Expert; Hard and Expert also require the matching saber colour.
+- **Beat Slicer**: a Beat Saber–style rhythm game where **every block is a note**. Your forearms become lightsabers (red = left, blue = right); touch a block as it arrives and it plays its note, so hitting them all performs the song. Block height follows pitch. There are nine public-domain songs, each with its own instrument: Twinkle Twinkle, Mary Had a Little Lamb, Ode to Joy, Jingle Bells, Happy Birthday, Canon in D, Für Elise, Korobeiniki (Tetris), and Hall of the Mountain King. Difficulty sets the tempo; Hard and Expert add bombs and require the matching saber colour. Songs live in `web/js/songs.js` in a simple text notation, so adding more is easy.
 - **Test: Easy Slicer**: Beat Slicer slowed right down. Sparse blocks, no bombs, can't fail.
 - **Joint Viewer**: your camera with the detected skeleton, per-joint confidence, and latency stats.
 
@@ -51,7 +51,8 @@ Settings (environment variables):
 server.py            FastAPI + WebSocket pose server (newest-frame-wins, one shared GPU model)
 web/index.html       UI shell
 web/js/pose.js       camera capture, streaming, One Euro smoothing, body coordinate frame
-web/js/audio.js      WebAudio synth, built-in songs, onset detection, SFX
+web/js/audio.js      WebAudio instrument voices, chord backing, SFX
+web/js/songs.js      melodies + chords in text notation, parser
 web/js/main.js       menus, hand-hover selection, game loop, pause/results
 web/js/games/        saber.js (Beat Slicer), viewer.js (Joint Viewer)
 web/vendor/          three.js r169 (MIT)

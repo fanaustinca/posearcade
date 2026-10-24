@@ -3,7 +3,7 @@ import { PoseClient, Body, KP, BONES } from './pose.js';
 import { ctx as audio, sfx } from './audio.js';
 import { SaberGame, SABER_DIFFS } from './games/saber.js';
 import { ViewerGame } from './games/viewer.js';
-import { SONGS, detectOnsets, renderSong } from './audio.js';
+import { SONGS } from './songs.js';
 
 const $ = (s) => document.querySelector(s);
 const pose = new PoseClient();
@@ -81,11 +81,11 @@ function updateMenuHands(dt) {
 function clearFills() { document.querySelectorAll('.fill').forEach(f => f.style.width = '0'); document.querySelectorAll('.hot').forEach(h => h.classList.remove('hot')); }
 
 // ---------- menus ----------
-let chosenSong = SONGS[0], chosenDiff = 'Normal', customSong = null, lastGame = null;
+let chosenSong = SONGS[0], chosenDiff = 'Easy', lastGame = null;
 const songRow = $('#songRow'), diffRow = $('#diffRow');
 for (const s of SONGS) {
   const b = document.createElement('div'); b.className = 'btn'; b.dataset.song = s.id;
-  b.innerHTML = `${s.name}<div class="kbd">${s.bpm} BPM · ${s.diff}</div><div class="fill"></div>`;
+  b.innerHTML = `${s.name}<div class="kbd">${'★'.repeat(s.level)}${'☆'.repeat(3 - s.level)}</div><div class="fill"></div>`;
   songRow.appendChild(b);
 }
 for (const d of Object.keys(SABER_DIFFS).filter(d => d !== 'Test')) {
@@ -93,31 +93,20 @@ for (const d of Object.keys(SABER_DIFFS).filter(d => d !== 'Test')) {
   b.innerHTML = `${d}<div class="fill"></div>`; diffRow.appendChild(b);
 }
 function refreshSel() {
-  songRow.querySelectorAll('.btn').forEach(b => b.classList.toggle('sel', !customSong && b.dataset.song === chosenSong.id));
+  songRow.querySelectorAll('.btn').forEach(b => b.classList.toggle('sel', b.dataset.song === chosenSong.id));
   diffRow.querySelectorAll('.btn').forEach(b => b.classList.toggle('sel', b.dataset.diff === chosenDiff));
 }
 refreshSel();
-$('#songFile').addEventListener('change', async (e) => {
-  const f = e.target.files[0]; if (!f) return;
-  msg('Analyzing song…');
-  try {
-    const buf = await audio.decodeAudioData(await f.arrayBuffer());
-    customSong = { name: f.name.replace(/\.[^.]+$/, ''), buffer: buf, analysis: detectOnsets(buf) };
-    msg(`Loaded "${customSong.name}" — ${customSong.analysis.onsets.length} beats found`, 2500);
-    refreshSel();
-  } catch (err) { msg('Could not decode that audio file', 3000); }
-});
-
 function activate(el) {
   sfx.ding(el.dataset.game ? 79 : 84);
   if (el.dataset.game === 'saber') { show('scrSongs'); return; }
   if (el.dataset.game === 'test') { lastGame = { kind: 'saber', song: SONGS[0], diff: 'Test' }; startCalib(); return; }
   if (el.dataset.game === 'viewer') { lastGame = { kind: 'viewer' }; endGame(); launch(); return; }
-  if (el.dataset.song) { chosenSong = SONGS.find(s => s.id === el.dataset.song); customSong = null; refreshSel(); return; }
+  if (el.dataset.song) { chosenSong = SONGS.find(s => s.id === el.dataset.song); refreshSel(); return; }
   if (el.dataset.diff) { chosenDiff = el.dataset.diff; refreshSel(); return; }
   switch (el.dataset.act) {
     case 'menu': endGame(); show('scrMenu'); break;
-    case 'play': lastGame = { kind: 'saber', song: customSong || chosenSong, diff: chosenDiff }; startCalib(); break;
+    case 'play': lastGame = { kind: 'saber', song: chosenSong, diff: chosenDiff }; startCalib(); break;
     case 'retry': startCalib(); break;
     case 'resume': resume(); break;
     case 'quit': endGame(); show('scrMenu'); break;
@@ -141,7 +130,6 @@ $('#btnStart').addEventListener('click', async () => {
     await pose.startCamera($('#camSel').value || undefined);
     bgvideo.srcObject = pose.stream; bgvideo.play();
     pose.connect();
-    SONGS.forEach(renderSong); // preload so levels start instantly
     resize();
     show('scrMenu');
   } catch (err) { $('#startErr').textContent = '⚠ ' + err.message; }
@@ -279,5 +267,5 @@ function frame(now) {
 resize();
 requestAnimationFrame(frame);
 // Test hook: start a game without the hands-up calibration.
-window.pa.launch = (kind, diff = 'Normal') => { lastGame = kind === 'saber' ? { kind, song: SONGS[0], diff } : { kind }; endGame(); launch(); };
+window.pa.launch = (kind, diff = 'Normal', song = 'twinkle') => { lastGame = kind === 'saber' ? { kind, song: SONGS.find(s => s.id === song), diff } : { kind }; endGame(); launch(); };
 Object.defineProperty(window.pa, 'game', { get: () => game });
