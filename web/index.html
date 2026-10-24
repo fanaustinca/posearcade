@@ -65,6 +65,9 @@
   .grid2 { display: grid; grid-template-columns: auto auto; gap: 10px 16px; align-items: center; font-size: 16px; }
   .bigstat { font-size: clamp(50px, 9vw, 120px); font-weight: 900; }
   .rank { font-size: clamp(70px, 12vw, 160px); font-weight: 900; color: var(--gold); text-shadow: 0 0 40px rgba(255,209,102,.5); }
+  #btnExit { position: fixed; top: 70px; right: 24px; z-index: 25; display: none; font-size: 34px; padding: 26px 48px; min-width: 240px;
+    background: rgba(255, 59, 92, .85); border-color: rgba(255,255,255,.7); }
+  #btnExit.on { display: block; }
   .help { position: fixed; bottom: 14px; left: 14px; color: var(--dim); font-size: 13px; z-index: 20; max-width: 50vw; }
 </style>
 </head>
@@ -140,6 +143,7 @@
   <div id="progress"></div>
 </div>
 <div id="msg"></div>
+<div class="btn" id="btnExit" data-act="quit">✕ Exit<div class="fill"></div></div>
 <div class="cursor" id="curL"></div><div class="cursor" id="curR"></div>
 <div class="help">Esc = pause · walk out of frame to auto-pause</div>
 

@@ -57,8 +57,9 @@ function handCursor(side) {
   return { x: innerWidth / 2 + h.x * innerWidth / 5.2, y: innerHeight / 2 - (h.y - 0.15) * innerHeight / 3.6 };
 }
 function updateMenuHands(dt) {
-  const menuOn = !game || paused || screen === 'scrResult';
-  const targets = menuOn ? [...document.querySelectorAll('.screen.on .card, .screen.on .btn')] : [];
+  const viewer = game && !paused && game.noAutoPause; // Joint Viewer: only the Exit button
+  const menuOn = !game || paused || screen === 'scrResult' || viewer;
+  const targets = viewer ? [$('#btnExit')] : menuOn ? [...document.querySelectorAll('.screen.on .card, .screen.on .btn')] : [];
   const hovered = new Set();
   for (const k of ['L', 'R']) {
     const c = menuOn && body.present && screen !== 'scrStart' ? handCursor(k) : null;
@@ -193,6 +194,7 @@ function launch() {
   const is3d = lastGame.kind === 'saber' || lastGame.kind === 'wall';
   glCanvas.style.display = is3d ? '' : 'none';
   overlay.style.display = is3d ? 'none' : '';
+  $('#btnExit').classList.toggle('on', lastGame.kind === 'viewer');
   pose.setHands(lastGame.kind !== 'saber'); hud.score(0, 0, 1); hud.progress(0);
   paused = false; absentFor = 0;
   game.start();
@@ -203,6 +205,7 @@ function endGame() {
   hud.el.classList.remove('on'); paused = false;
   renderer.clear(); octx.clearRect(0, 0, innerWidth, innerHeight);
   bgvideo.style.opacity = 0; glCanvas.style.display = 'none';
+  $('#btnExit').classList.remove('on');
   pose.setHands(true); // menus use the hand cursors
 }
 function finishGame(res) {

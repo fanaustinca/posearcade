@@ -10,7 +10,7 @@ export class ViewerGame {
   start() {
     this.app.bgvideo.style.opacity = 1;
     this.app.hud.energy(null);
-    this.app.msg('Joint Viewer — press Esc for the menu, L to toggle labels', 4000);
+    this.app.msg('Joint Viewer — hover a hand on ✕ Exit (or press Esc) to leave · L toggles labels', 4000);
     this.onKey = (e) => { if (e.key === 'l' || e.key === 'L') this.labels = !this.labels; };
     addEventListener('keydown', this.onKey);
   }
