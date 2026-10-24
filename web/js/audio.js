@@ -24,34 +24,34 @@ function env(g, t, a, peak, d, sus = 0.0001) {
 
 const inst = {
   kick(t, out, v = 1) {
-    const o = ctx.createOscillator(), g = ctx.createGain();
+    const o = out.context.createOscillator(), g = out.context.createGain();
     o.frequency.setValueAtTime(160, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.12);
     env(g, t, 0.002, v, 0.35); o.connect(g).connect(out); o.start(t); o.stop(t + 0.4);
   },
   snare(t, out, v = 1) {
-    const n = ctx.createBufferSource(); n.buffer = noise;
-    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1900; f.Q.value = 0.7;
-    const g = ctx.createGain(); env(g, t, 0.002, 0.7 * v, 0.2);
+    const n = out.context.createBufferSource(); n.buffer = noise;
+    const f = out.context.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1900; f.Q.value = 0.7;
+    const g = out.context.createGain(); env(g, t, 0.002, 0.7 * v, 0.2);
     n.connect(f).connect(g).connect(out); n.start(t); n.stop(t + 0.25);
-    const o = ctx.createOscillator(), g2 = ctx.createGain(); o.frequency.value = 185;
+    const o = out.context.createOscillator(), g2 = out.context.createGain(); o.frequency.value = 185;
     env(g2, t, 0.002, 0.4 * v, 0.1); o.connect(g2).connect(out); o.start(t); o.stop(t + 0.15);
   },
   clap(t, out, v = 1) {
     for (let k = 0; k < 3; k++) {
-      const n = ctx.createBufferSource(); n.buffer = noise;
-      const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200; f.Q.value = 1.2;
-      const g = ctx.createGain(); env(g, t + k * 0.012, 0.001, 0.45 * v, k === 2 ? 0.18 : 0.02);
+      const n = out.context.createBufferSource(); n.buffer = noise;
+      const f = out.context.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1200; f.Q.value = 1.2;
+      const g = out.context.createGain(); env(g, t + k * 0.012, 0.001, 0.45 * v, k === 2 ? 0.18 : 0.02);
       n.connect(f).connect(g).connect(out); n.start(t + k * 0.012); n.stop(t + 0.3);
     }
   },
   hat(t, out, v = 1, open = false) {
-    const n = ctx.createBufferSource(); n.buffer = noise;
-    const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 7500;
-    const g = ctx.createGain(); env(g, t, 0.001, 0.22 * v, open ? 0.22 : 0.045);
+    const n = out.context.createBufferSource(); n.buffer = noise;
+    const f = out.context.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 7500;
+    const g = out.context.createGain(); env(g, t, 0.001, 0.22 * v, open ? 0.22 : 0.045);
     n.connect(f).connect(g).connect(out); n.start(t); n.stop(t + 0.3);
   },
   bass(t, out, midi, dur, v = 1) {
-    const o = ctx.createOscillator(), o2 = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    const o = out.context.createOscillator(), o2 = out.context.createOscillator(), f = out.context.createBiquadFilter(), g = out.context.createGain();
     o.type = 'sawtooth'; o2.type = 'square'; o.frequency.value = mtof(midi); o2.frequency.value = mtof(midi - 12);
     f.type = 'lowpass'; f.Q.value = 6;
     f.frequency.setValueAtTime(1400, t); f.frequency.exponentialRampToValueAtTime(220, t + dur * 0.9);
@@ -60,20 +60,20 @@ const inst = {
     o.start(t); o2.start(t); o.stop(t + dur + 0.05); o2.stop(t + dur + 0.05);
   },
   pluck(t, out, midi, v = 1, type = 'square') {
-    const o = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+    const o = out.context.createOscillator(), f = out.context.createBiquadFilter(), g = out.context.createGain();
     o.type = type; o.frequency.value = mtof(midi);
     f.type = 'lowpass'; f.frequency.setValueAtTime(5000, t); f.frequency.exponentialRampToValueAtTime(600, t + 0.2);
     env(g, t, 0.003, 0.13 * v, 0.22);
     o.connect(f).connect(g).connect(out); o.start(t); o.stop(t + 0.3);
   },
   pad(t, out, notes, dur, v = 1) {
-    const f = ctx.createBiquadFilter(), g = ctx.createGain();
+    const f = out.context.createBiquadFilter(), g = out.context.createGain();
     f.type = 'lowpass'; f.frequency.value = 1600;
     g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.05 * v, t + 0.3);
     g.gain.setValueAtTime(0.05 * v, t + dur - 0.2); g.gain.linearRampToValueAtTime(0.0001, t + dur);
     f.connect(g).connect(out);
     for (const m of notes) for (const det of [-8, 7]) {
-      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mtof(m); o.detune.value = det;
+      const o = out.context.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mtof(m); o.detune.value = det;
       o.connect(f); o.start(t); o.stop(t + dur + 0.05);
     }
   },
@@ -103,57 +103,64 @@ export function songTimeline(song) {
   return { beats, duration: bar * 4 * spb + 1.5, spb, bars: bar };
 }
 
-export class Sequencer {
-  constructor(song) { this.song = song; this.tl = songTimeline(song); this.timer = null; }
-  start(when) {
-    this.t0 = when; this.step = 0; this.stopped = false;
-    const s = this.song, spb = this.tl.spb, s16 = spb / 4, minor = s.minor;
-    const chordTones = (root) => [root, root + (minor ? 3 : 4), root + 7];
-    const arp = [0, 2, 1, 2, 0, 2, 1, 3];
-    const tick = () => {
-      if (this.stopped) return;
-      const horizon = ctx.currentTime + 0.2;
-      while (true) {
-        const t = this.t0 + this.step * s16;
-        if (t > horizon) break;
-        const beatIdx = Math.floor(this.step / 4), sub = this.step % 4;
-        const beat = this.tl.beats[beatIdx];
-        if (!beat) { this.stopped = true; break; }
-        const lvl = beat.intensity, q = beat.q;
-        const root = s.key + s.prog[beat.bar % s.prog.length];
-        const out = musicBus;
-        if (sub === 0) {
-          if (lvl >= 1 || q === 0) inst.kick(t, out, lvl === 0 ? 0.6 : 1);
-          if (lvl >= 1 && (q === 1 || q === 3)) (lvl >= 3 ? inst.clap : inst.snare)(t, out, 0.9);
-          if (q === 0) inst.pad(t, out, chordTones(root + 12), spb * 4, lvl === 0 ? 1.4 : 1);
-        }
-        if (lvl >= 2 && sub === 2) inst.hat(t, out, 1, q === 3);
-        if (lvl >= 3 && (sub === 1 || sub === 3)) inst.hat(t, out, 0.5);
-        if (lvl >= 1 && (sub === 0 || sub === 2 || (lvl >= 3 && sub === 3)))
-          inst.bass(t, out, root - 12 + (sub === 3 ? 12 : 0), s16 * 1.8, 0.9);
-        if (lvl >= 2 || (lvl === 1 && sub % 2 === 0)) {
-          const tones = chordTones(root + 24);
-          const n = arp[(this.step) % arp.length];
-          inst.pluck(t, out, n === 3 ? tones[0] + 12 : tones[n], lvl >= 2 ? 1 : 0.6, s.lead);
-        }
-        this.step++;
-      }
-      this.timer = setTimeout(tick, 30);
-    };
-    tick();
+// Built-in songs as AudioBuffers, so gameplay can play them back one
+// block-sized segment at a time. Pre-rendered FLACs (tools/render_songs.cjs)
+// load instantly; rendering live takes ~20s, so it's only a fallback.
+const rendered = new Map();
+export function renderSong(song) {
+  if (!rendered.has(song.id)) rendered.set(song.id, fetch(`songs/${song.id}.flac`)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
+    .then(b => ctx.decodeAudioData(b))
+    .catch(() => renderSongOffline(song)));
+  return rendered.get(song.id);
+}
+export async function renderSongOffline(song) {
+  const tl = songTimeline(song), sr = 44100;
+  const off = new OfflineAudioContext(2, Math.ceil(sr * tl.duration), sr);
+  const out = off.createGain(); out.gain.value = 0.7;
+  const c = off.createDynamicsCompressor(); c.threshold.value = -14; c.ratio.value = 4;
+  out.connect(c).connect(off.destination);
+  const spb = tl.spb, s16 = spb / 4, minor = song.minor;
+  const chordTones = (root) => [root, root + (minor ? 3 : 4), root + 7];
+  const arp = [0, 2, 1, 2, 0, 2, 1, 3];
+  for (let step = 0; step < tl.beats.length * 4; step++) {
+    const t = step * s16, sub = step % 4, beat = tl.beats[Math.floor(step / 4)];
+    const lvl = beat.intensity, q = beat.q;
+    const root = song.key + song.prog[beat.bar % song.prog.length];
+    if (sub === 0) {
+      if (lvl >= 1 || q === 0) inst.kick(t, out, lvl === 0 ? 0.6 : 1);
+      if (lvl >= 1 && (q === 1 || q === 3)) (lvl >= 3 ? inst.clap : inst.snare)(t, out, 0.9);
+      if (q === 0) inst.pad(t, out, chordTones(root + 12), spb * 4, lvl === 0 ? 1.4 : 1);
+    }
+    if (lvl >= 2 && sub === 2) inst.hat(t, out, 1, q === 3);
+    if (lvl >= 3 && (sub === 1 || sub === 3)) inst.hat(t, out, 0.5);
+    if (lvl >= 1 && (sub === 0 || sub === 2 || (lvl >= 3 && sub === 3)))
+      inst.bass(t, out, root - 12 + (sub === 3 ? 12 : 0), s16 * 1.8, 0.9);
+    if (lvl >= 2 || (lvl === 1 && sub % 2 === 0)) {
+      const tones = chordTones(root + 24), n = arp[step % arp.length];
+      inst.pluck(t, out, n === 3 ? tones[0] + 12 : tones[n], lvl >= 2 ? 1 : 0.6, song.lead);
+    }
   }
-  stop() { this.stopped = true; clearTimeout(this.timer); }
+  return off.startRendering();
 }
 
-// Plays a decoded user AudioBuffer.
-export class BufferPlayer {
-  constructor(buffer) { this.buffer = buffer; }
-  start(when) {
-    this.src = ctx.createBufferSource(); this.src.buffer = this.buffer;
-    this.src.connect(musicBus); this.src.start(when);
-  }
-  stop() { try { this.src.stop(); } catch { } }
+// Plays [offset, offset+dur) of a song buffer at audio time `when`, with short
+// fades so back-to-back segments join seamlessly. If `when` has already
+// passed (a late cut), it starts now and skips ahead to stay on the beat.
+const live = new Set();
+export function playSegment(buffer, when, offset, dur) {
+  const now = ctx.currentTime;
+  if (when < now) { const skip = now - when; offset += skip; dur -= skip; when = now; }
+  if (dur <= 0.02) return;
+  const src = ctx.createBufferSource(); src.buffer = buffer;
+  const g = ctx.createGain(), F = 0.006;
+  g.gain.setValueAtTime(0, when); g.gain.linearRampToValueAtTime(1, when + F);
+  g.gain.setValueAtTime(1, when + dur); g.gain.linearRampToValueAtTime(0, when + dur + F);
+  src.connect(g).connect(musicBus);
+  src.start(when, offset, dur + F * 2);
+  live.add(src); src.onended = () => live.delete(src);
 }
+export function stopSegments() { for (const s of live) { try { s.stop(); } catch { } } live.clear(); }
 
 // Onset detection for a user song: band energy flux + adaptive threshold.
 export function detectOnsets(buffer) {
@@ -195,12 +202,12 @@ export function detectOnsets(buffer) {
 
 // ---- Sound effects ----
 export const sfx = {
-  slice(pitch = 1) {
+  slice(pitch = 1, vol = 1) {
     const t = ctx.currentTime;
     const n = ctx.createBufferSource(); n.buffer = noise; n.playbackRate.value = pitch;
     const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 2;
     f.frequency.setValueAtTime(5200 * pitch, t); f.frequency.exponentialRampToValueAtTime(900, t + 0.12);
-    const g = ctx.createGain(); env(g, t, 0.002, 0.6, 0.14);
+    const g = ctx.createGain(); env(g, t, 0.002, 0.6 * vol, 0.14);
     n.connect(f).connect(g).connect(sfxBus); n.start(t); n.stop(t + 0.2);
   },
   miss() {

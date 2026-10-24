@@ -3,7 +3,7 @@ import { PoseClient, Body, KP, BONES } from './pose.js';
 import { ctx as audio, sfx } from './audio.js';
 import { SaberGame, SABER_DIFFS } from './games/saber.js';
 import { ViewerGame } from './games/viewer.js';
-import { SONGS, detectOnsets } from './audio.js';
+import { SONGS, detectOnsets, renderSong } from './audio.js';
 
 const $ = (s) => document.querySelector(s);
 const pose = new PoseClient();
@@ -141,6 +141,7 @@ $('#btnStart').addEventListener('click', async () => {
     await pose.startCamera($('#camSel').value || undefined);
     bgvideo.srcObject = pose.stream; bgvideo.play();
     pose.connect();
+    SONGS.forEach(renderSong); // preload so levels start instantly
     resize();
     show('scrMenu');
   } catch (err) { $('#startErr').textContent = '⚠ ' + err.message; }
@@ -279,3 +280,4 @@ resize();
 requestAnimationFrame(frame);
 // Test hook: start a game without the hands-up calibration.
 window.pa.launch = (kind, diff = 'Normal') => { lastGame = kind === 'saber' ? { kind, song: SONGS[0], diff } : { kind }; endGame(); launch(); };
+Object.defineProperty(window.pa, 'game', { get: () => game });

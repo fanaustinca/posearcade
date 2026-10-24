@@ -1,51 +1,46 @@
 import * as THREE from 'three';
 import { KP, BONES } from '../pose.js';
-import { ctx as audio, sfx, Sequencer, BufferPlayer, songTimeline } from '../audio.js';
+import { ctx as audio, sfx, songTimeline, renderSong, playSegment, stopSegments } from '../audio.js';
 
 export const SABER_DIFFS = {
-  Test:   { speed: 8,  density: 0.3,  half: 0,    doubles: 0,    bombs: 0,    diag: false, horiz: 0,    any: 0.6,  minGap: 1.1,  fail: false },
-  Easy:   { speed: 11, density: 0.45, half: 0,    doubles: 0,    bombs: 0,    diag: false, horiz: 0,    any: 0.35, minGap: 0.75, fail: false },
-  Normal: { speed: 14, density: 0.7,  half: 0,    doubles: 0.08, bombs: 0.03, diag: false, horiz: 0.1,  any: 0.12, minGap: 0.5,  fail: true },
-  Hard:   { speed: 17, density: 0.9,  half: 0.25, doubles: 0.15, bombs: 0.05, diag: true,  horiz: 0.12, any: 0.05, minGap: 0.36, fail: true },
-  Expert: { speed: 20, density: 1.0,  half: 0.55, doubles: 0.22, bombs: 0.07, diag: true,  horiz: 0.15, any: 0,    minGap: 0.27, fail: true },
+  Test:   { speed: 8,  density: 0.3,  half: 0,    doubles: 0,    bombs: 0,    minGap: 1.1,  fail: false, matchColor: false },
+  Easy:   { speed: 11, density: 0.45, half: 0,    doubles: 0,    bombs: 0,    minGap: 0.75, fail: false, matchColor: false },
+  Normal: { speed: 14, density: 0.7,  half: 0,    doubles: 0.08, bombs: 0.03, minGap: 0.5,  fail: true,  matchColor: false },
+  Hard:   { speed: 17, density: 0.9,  half: 0.25, doubles: 0.15, bombs: 0.05, minGap: 0.36, fail: true,  matchColor: true },
+  Expert: { speed: 20, density: 1.0,  half: 0.55, doubles: 0.22, bombs: 0.07, minGap: 0.27, fail: true,  matchColor: true },
 };
 
-const LANES = [-1.65, -0.55, 0.55, 1.65];
-const ROWS = [-0.85, 0.25, 1.35];
-const DIRS = {
-  U: [0, 1], D: [0, -1], L: [-1, 0], R: [1, 0],
-  UL: [-Math.SQRT1_2, Math.SQRT1_2], UR: [Math.SQRT1_2, Math.SQRT1_2],
-  DL: [-Math.SQRT1_2, -Math.SQRT1_2], DR: [Math.SQRT1_2, -Math.SQRT1_2], ANY: null,
-};
-const SABER_LEN = 1.5, HIT_R = 0.52, MIN_SPEED = 2.4;
-const EARLY = 0.26, LATE = 0.14; // seconds around the hit time a cut can land
+// Comfortable reach zone in shoulder-width units (0 = shoulder line).
+const LANES = [-1.45, -0.55, 0.55, 1.45];
+const ROWS = [-0.6, 0.3, 1.1];
+const SABER_LEN = 1.5, HIT_R = 0.55;
+const EARLY = 0.12, LATE = 0.14; // seconds around the hit time a block can be cut
 const COLORS = { L: 0xff3b5c, R: 0x2fa8ff };
 
 function rng(seed) { let s = seed >>> 0 || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
 function hashStr(s) { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
 
 // ---------- map generation ----------
-// candidates: [{t, lvl (0..3), strong}] -> notes [{t, hand, lane, row, dir, bomb}]
+// candidates: [{t, lvl (0..3), strong}] -> notes [{t, hand, lane, row, bomb}]
 function buildMap(cands, diff, seed) {
   const R = rng(seed), notes = [];
-  const last = { L: -9, R: -9 }, parity = { L: 'D', R: 'D' };
-  const pickRow = (down) => { const r = R(); return down ? (r < 0.4 ? 0 : r < 0.8 ? 1 : 2) : (r < 0.5 ? 0 : r < 0.9 ? 1 : 2); };
-  const dirFor = (hand) => {
-    const down = parity[hand] === 'D';
-    if (R() < diff.any) return 'ANY';
-    if (R() < diff.horiz) return hand === 'L' ? (down ? 'L' : 'R') : (down ? 'R' : 'L');
-    if (diff.diag && R() < 0.35) return (down ? 'D' : 'U') + (R() < 0.5 ? 'L' : 'R');
-    return down ? 'D' : 'U';
-  };
-  const place = (t, hand, laneSet) => {
-    const dir = dirFor(hand), down = parity[hand] === 'D';
-    // Up/down rows follow the swing so the next swing flows from where the hand ends.
-    let row = pickRow(down);
-    if (dir === 'L' || dir === 'R') row = 1;
-    const lane = laneSet[Math.floor(R() * laneSet.length)];
-    notes.push({ t, hand, lane, row, dir });
-    parity[hand] = down ? 'U' : 'D'; last[hand] = t;
-    return { lane, row };
+  const last = { L: -9, R: -9 };
+  // Each hand stays on its own side and moves at most one cell per note, so
+  // the arm drifts smoothly instead of jumping across the body.
+  const pos = { L: { lane: 1, row: 1 }, R: { lane: 2, row: 1 } };
+  const laneRange = { L: [0, 1], R: [2, 3] };
+  const rowW = [1, 1.6, 0.5]; // low / chest / high: high is tiring
+  const step = (hand, gap) => {
+    const p = pos[hand], opts = [];
+    for (let lane = laneRange[hand][0]; lane <= laneRange[hand][1]; lane++)
+      for (let row = 0; row < 3; row++) {
+        const d = Math.abs(lane - p.lane) + Math.abs(row - p.row);
+        if (d > (gap > 1.6 ? 2 : 1)) continue;
+        opts.push({ lane, row, w: rowW[row] * (d === 0 ? 0.35 : 1) });
+      }
+    let r = R() * opts.reduce((a, o) => a + o.w, 0);
+    for (const o of opts) if ((r -= o.w) <= 0) return (pos[hand] = { lane: o.lane, row: o.row });
+    return p;
   };
   for (const c of cands) {
     const gap = diff.minGap * (c.lvl >= 3 ? 0.85 : 1);
@@ -53,17 +48,23 @@ function buildMap(cands, diff, seed) {
     if (!freeL && !freeR) continue;
     const wantDouble = c.strong && c.lvl >= 2 && R() < diff.doubles * (c.sectionStart ? 4 : 1);
     if (wantDouble && freeL && freeR) {
-      parity.R = parity.L;
-      if (R() < 0.5) { place(c.t, 'L', [0]); place(c.t, 'R', [3]); } else { place(c.t, 'L', [1]); place(c.t, 'R', [2]); }
+      // mirrored pair, same row
+      const p = step('R', c.t - last.R);
+      pos.L = { lane: 3 - p.lane, row: p.row };
+      notes.push({ t: c.t, hand: 'L', ...pos.L }, { t: c.t, hand: 'R', ...p });
+      last.L = last.R = c.t;
       continue;
     }
-    let hand = freeL && freeR ? (last.L <= last.R ? 'L' : 'R') : (freeL ? 'L' : 'R');
-    const lanes = hand === 'L' ? (R() < 0.85 ? [0, 1] : [2]) : (R() < 0.85 ? [2, 3] : [1]);
-    const p = place(c.t, hand, lanes);
+    const hand = freeL && freeR ? (last.L <= last.R ? 'L' : 'R') : (freeL ? 'L' : 'R');
+    const p = step(hand, c.t - last[hand]);
+    notes.push({ t: c.t, hand, ...p });
+    last[hand] = c.t;
     if (R() < diff.bombs && c.lvl >= 1) {
-      // bomb on the opposite side from where the swing ends up
-      const lane = hand === 'L' ? 2 + Math.floor(R() * 2) : Math.floor(R() * 2);
-      if (Math.abs(lane - p.lane) > 0) notes.push({ t: c.t, bomb: true, lane, row: Math.floor(R() * 3) });
+      // outer lane on the resting hand's side, away from where that hand is
+      const other = hand === 'L' ? 'R' : 'L', o = pos[other];
+      const lane = other === 'L' ? (o.lane === 0 ? 1 : 0) : (o.lane === 3 ? 2 : 3);
+      const row = o.row === 1 ? (R() < 0.5 ? 0 : 2) : 1;
+      if (c.t - last[other] > 0.6) notes.push({ t: c.t, bomb: true, lane, row });
     }
   }
   return notes;
@@ -194,11 +195,6 @@ function makeSaber(color) {
   return g;
 }
 
-function arrowShape() {
-  const s = new THREE.Shape();
-  s.moveTo(-0.26, -0.02); s.lineTo(0.26, -0.02); s.lineTo(0, 0.22); s.closePath();
-  return new THREE.ShapeGeometry(s);
-}
 
 // ---------- the game ----------
 export class SaberGame {
@@ -210,10 +206,14 @@ export class SaberGame {
     const { cands, duration, spb } = isCustom ? customCandidates(song.analysis, this.diff) : builtinCandidates(song, this.diff);
     this.notes = buildMap(cands, this.diff, hashStr((song.id || song.name) + opts.diff)).sort((a, b) => a.t - b.t);
     this.duration = duration; this.spb = spb;
-    this.player = isCustom ? new BufferPlayer(song.buffer) : new Sequencer(song);
+    this.song = song; this.buffer = isCustom ? song.buffer : null;
+    // Each block owns the stretch of song from its time to the next block's;
+    // cutting it plays that stretch. Doubles share one segment.
+    const times = [...new Set(this.notes.filter(n => !n.bomb).map(n => n.t))].sort((a, b) => a - b);
+    this.segs = new Map(times.map((t, i) => [t, { dur: (i + 1 < times.length ? times[i + 1] : duration) - t, played: false }]));
     this.songName = song.name;
     this.score = 0; this.combo = 0; this.maxCombo = 0; this.mult = 1; this.multProg = 0;
-    this.energy = 0.5; this.hits = 0; this.misses = 0; this.badCuts = 0; this.bombsHit = 0;
+    this.energy = 0.5; this.hits = 0; this.misses = 0; this.bombsHit = 0;
     this.maxScore = 0;
     // Max score with the multiplier ramp (1x for 1, 2x for 4, 4x for 8, then 8x).
     this.maxScore = 0; { let c = 0; for (const n of this.notes) if (!n.bomb) { c++; this.maxScore += 115 * (c < 2 ? 1 : c < 6 ? 2 : c < 14 ? 4 : 8); } }
@@ -271,9 +271,8 @@ export class SaberGame {
     this.halfGeo = new THREE.BoxGeometry(0.78, 0.39, 0.78);
     this.blockMat = { L: new THREE.MeshStandardMaterial({ color: COLORS.L, emissive: COLORS.L, emissiveIntensity: 0.35, roughness: 0.35, metalness: 0.2 }),
                       R: new THREE.MeshStandardMaterial({ color: COLORS.R, emissive: COLORS.R, emissiveIntensity: 0.35, roughness: 0.35, metalness: 0.2 }) };
-    this.arrowGeo = arrowShape();
     this.dotGeo = new THREE.CircleGeometry(0.12, 20);
-    this.arrowMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    this.dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.bombGeo = new THREE.IcosahedronGeometry(0.36, 0);
     this.bombMat = new THREE.MeshStandardMaterial({ color: 0x1a1a22, roughness: 0.4, metalness: 0.8, emissive: 0x220000 });
 
@@ -295,14 +294,18 @@ export class SaberGame {
 
   start() {
     this.resize();
-    this.leadIn = 2.8;
-    this.t0 = audio.currentTime + this.leadIn;
-    this.player.start(this.t0);
     this.app.hud.energy(this.diff.fail ? this.energy : null);
-    this.app.hud.toast(this.songName, '#fff', 1800);
+    this.app.hud.toast(this.buffer ? this.songName : 'Loading…', '#fff', 1800);
+    const go = (buf) => {
+      if (this.ended) return;
+      this.buffer = buf;
+      this.t0 = audio.currentTime + 2.8;
+      this.app.hud.toast(this.songName, '#fff', 1800);
+    };
+    if (this.buffer) go(this.buffer); else renderSong(this.song).then(go);
   }
 
-  time() { return audio.currentTime - this.t0; }
+  time() { return this.t0 == null ? -99 : audio.currentTime - this.t0; }
 
   spawn(n) {
     let mesh;
@@ -311,9 +314,8 @@ export class SaberGame {
     } else {
       mesh = new THREE.Group();
       mesh.add(new THREE.Mesh(this.blockGeo, this.blockMat[n.hand]));
-      const mark = new THREE.Mesh(n.dir === 'ANY' ? this.dotGeo : this.arrowGeo, this.arrowMat);
+      const mark = new THREE.Mesh(this.dotGeo, this.dotMat);
       mark.position.z = 0.4; mesh.add(mark);
-      if (n.dir !== 'ANY') { const [dx, dy] = DIRS[n.dir]; mesh.rotation.z = Math.atan2(dy, dx) - Math.PI / 2; }
     }
     mesh.position.set(LANES[n.lane], ROWS[n.row], -60);
     this.scene.add(mesh);
@@ -336,6 +338,7 @@ export class SaberGame {
   }
 
   update(dt) {
+    if (this.t0 == null) { this.updateEnv(0, dt); return; }
     const t = this.time(), diff = this.diff;
     // spawn
     const travel = 60 / diff.speed;
@@ -405,19 +408,18 @@ export class SaberGame {
       }
       if (hitK < 0) continue;
       if (n.bomb) { this.onBomb(n); continue; }
-      if (speed < MIN_SPEED) continue; // resting in a block doesn't cut it
-      const dir = DIRS[n.dir];
-      const dot = dir ? (v.x * dir[0] + v.y * dir[1]) / speed : 1;
-      if (n.hand !== hand) this.onBadCut(n, 'WRONG SABER', v);
-      else if (dot < 0.42) this.onBadCut(n, 'WRONG WAY', v);
-      else this.onCut(n, v, speed, bestDist, dot);
+      // Touching is enough; on harder levels only the matching saber counts.
+      if (this.diff.matchColor && n.hand !== hand) continue;
+      this.onCut(n, v, bestDist);
     }
   }
 
-  onCut(n, v, speed, dist, dot) {
+  onCut(n, v, dist) {
     n.done = true;
+    const seg = this.segs.get(n.t);
+    if (seg && !seg.played) { seg.played = true; playSegment(this.buffer, this.t0 + n.t, n.t, seg.dur); }
     const acc = Math.max(0, 1 - dist / HIT_R);
-    const pts = Math.round(70 + 30 * acc + Math.min(15, (speed - MIN_SPEED) * 3) * Math.max(0, dot));
+    const pts = Math.round(85 + 30 * acc);
     this.combo++; this.maxCombo = Math.max(this.maxCombo, this.combo); this.hits++;
     this.multProg++;
     const need = this.mult === 1 ? 2 : this.mult === 2 ? 4 : this.mult === 4 ? 8 : Infinity;
@@ -427,7 +429,7 @@ export class SaberGame {
     this.app.hud.score(this.score, this.combo, this.mult);
     this.app.hud.energy(this.diff.fail ? this.energy : null);
     if (pts >= 110) this.app.hud.toast('PERFECT', '#ffd166', 350);
-    sfx.slice(n.hand === 'L' ? 0.9 : 1.1);
+    sfx.slice(n.hand === 'L' ? 0.9 : 1.1, 0.25);
     this.sliceFx(n, v);
   }
 
@@ -448,12 +450,6 @@ export class SaberGame {
     this.particles.burst(p.x, p.y, p.z, color, 40, 4.5, 0.55, [v.x / dl, v.y / dl]);
   }
 
-  onBadCut(n, label, v) {
-    n.done = true; this.badCuts++;
-    this.scene.remove(n.mesh);
-    this.particles.burst(n.mesh.position.x, n.mesh.position.y, n.mesh.position.z, 0x888888, 18, 2.5, 0.4);
-    this.breakCombo(label, 0.1);
-  }
   onMiss(label) { this.misses++; this.breakCombo(label, 0.15); }
   onBomb(n) {
     n.done = true; this.bombsHit++;
@@ -503,7 +499,7 @@ export class SaberGame {
 
   end(failed) {
     if (this.ended) return; this.ended = true;
-    this.player.stop();
+    stopSegments();
     const total = this.notes.filter(n => !n.bomb).length;
     const pct = this.maxScore ? this.score / this.maxScore : 0;
     const rank = failed ? 'F' : pct >= 0.9 ? 'SS' : pct >= 0.8 ? 'S' : pct >= 0.65 ? 'A' : pct >= 0.5 ? 'B' : pct >= 0.35 ? 'C' : 'D';
@@ -512,13 +508,13 @@ export class SaberGame {
       stats: {
         Song: `${this.songName} (${this.opts.diff})`, Score: Math.round(this.score).toLocaleString(),
         Accuracy: `${(pct * 100).toFixed(1)}%`, 'Blocks cut': `${this.hits} / ${total}`,
-        'Max combo': this.maxCombo, 'Misses / bad cuts': `${this.misses} / ${this.badCuts}`, Bombs: this.bombsHit,
+        'Max combo': this.maxCombo, Misses: this.misses, Bombs: this.bombsHit,
       },
     });
   }
 
   dispose() {
-    this.player.stop();
+    stopSegments();
     this.scene.traverse(o => { o.geometry?.dispose?.(); });
     this.tex.dispose();
     this.app.renderer.setClearColor(0x000000, 0);

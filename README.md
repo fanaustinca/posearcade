@@ -6,7 +6,7 @@ Your laptop or phone captures the camera and streams small JPEG frames over a We
 
 ## Games
 
-- **Beat Slicer**: a Beat Saber–style rhythm game. Your forearms become lightsabers (red = left, blue = right). Slice blocks in the arrow's direction, avoid bombs, build combos. It has four built-in procedurally synthesized songs plus **load your own audio file**, which is beat-mapped automatically by onset detection. Difficulties: Easy, Normal, Hard, Expert.
+- **Beat Slicer**: a Beat Saber–style rhythm game. Your forearms become lightsabers (red = left, blue = right); just hold a saber where a block arrives and it gets cut. There is no backing track: each block carries the next slice of the song, so the music only plays when you hit the blocks. It has four built-in songs (pre-rendered in `web/songs/`, regenerate with `tools/render_songs.cjs`) plus **load your own audio file**, which gets chopped at its detected beats. Difficulties: Easy, Normal, Hard and Expert; Hard and Expert also require the matching saber colour.
 - **Test: Easy Slicer**: Beat Slicer slowed right down. Sparse blocks, no bombs, can't fail.
 - **Joint Viewer**: your camera with the detected skeleton, per-joint confidence, and latency stats.
 
