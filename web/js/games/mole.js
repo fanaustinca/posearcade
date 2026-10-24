@@ -1,10 +1,10 @@
 import { ctx as audio, sfx } from '../audio.js';
 
-// Holes in body space (shoulder-width units around the player); nothing
-// in front of the body and nothing low.
-const COLS = [-2.3, -1.35, 1.35, 2.3], ROWS = [-0.1, 0.9, 1.9];
-const HOLES = ROWS.flatMap(y => COLS.map(x => ({ x, y })));
-const DURATION = 60, HIT_R = 0.5, MOLE_R = 0.36;
+// Holes sit at fixed spots in the camera frame (not around the body), so you
+// step sideways or crouch to reach them. Units: 1 = 12% of the frame height,
+// about a shoulder width at a normal playing distance. x right, y up, 0 = frame centre.
+const U = 0.12, ROWS = [2.0, 0.6, -0.8];
+const DURATION = 60, HIT_R = 0.7, MOLE_R = 0.55;
 const TYPES = {
   mole: { pts: 10, color: '#8b5a3c' },
   gold: { pts: 30, color: '#f5c542' },
@@ -25,22 +25,37 @@ export class MoleGame {
     this.app.hud.energy(null);
     this.app.hud.score(0, 0, 1);
     this.app.hud.toast('Whack the moles! Avoid bombs', '#ffd166', 1500);
+    this.layout();
     this.t0 = audio.currentTime; this.nextSpawn = 1.2; this.warned = false;
   }
   time() { return audio.currentTime - this.t0; }
 
   // body space -> window pixels, plus pixels per body unit
   toWin(x, y) {
-    const b = this.app.body, a = this.app.pose.aspect;
-    const sx = (b.center.x + x * b.scale) / a, sy = b.center.y - y * b.scale;
-    const w = this.app.videoToWindow(sx, sy);
-    return { x: w.x, y: w.y, u: b.scale * w.s };
+    const a = this.app.pose.aspect, w = this.app.videoToWindow(0.5 + x * U / a, 0.5 - y * U);
+    return { x: w.x, y: w.y, u: U * w.s };
   }
+
+  // Spread 4 columns across whatever part of the camera image is on screen.
+  layout() {
+    const a = this.app.pose.aspect, l = this.app.videoToWindow(0, 0), r = this.app.videoToWindow(1, 0);
+    const vx0 = Math.max(0, -l.x / (r.x - l.x)), vx1 = Math.min(1, (innerWidth - l.x) / (r.x - l.x));
+    const X0 = (vx0 - 0.5) * a / U + 0.9, X1 = (vx1 - 0.5) * a / U - 0.9;
+    const cols = [0, 1, 2, 3].map(i => X0 + (X1 - X0) * i / 3);
+    this.holes = ROWS.flatMap(y => cols.map(x => ({ x, y })));
+  }
+
+  hand(side) {
+    const s = this.app.body.handScreen(side), a = this.app.pose.aspect;
+    return s.ok ? { x: (s.x - 0.5) * a / U, y: (0.5 - s.y) / U, ok: true, src: s.src } : { ok: false };
+  }
+
+  resize() { this.layout(); }
 
   spawn(t) {
     const prog = t / DURATION;
     const busy = new Set(this.moles.map(m => m.hole));
-    const free = HOLES.map((_, i) => i).filter(i => !busy.has(i) && this.onScreen(HOLES[i]));
+    const free = this.holes.map((_, i) => i).filter(i => !busy.has(i));
     if (!free.length) return;
     const hole = free[Math.floor(Math.random() * free.length)];
     const r = Math.random();
@@ -50,14 +65,8 @@ export class MoleGame {
     if (type !== 'bomb') this.spawned++;
   }
 
-  onScreen(h) {
-    const p = this.toWin(h.x, h.y), m = p.u * 0.5;
-    return p.x > m && p.x < innerWidth - m && p.y > m + 60 && p.y < innerHeight - m;
-  }
-
   update(dt) {
     const t = this.time(), b = this.app.body;
-    if (!b.center) return;
     const prog = Math.min(1, t / DURATION);
     if (t >= this.nextSpawn && t < DURATION) {
       const maxUp = prog < 0.3 ? 1 : prog < 0.65 ? 2 : 3;
@@ -68,12 +77,12 @@ export class MoleGame {
 
     // hands are the mallets; a hit needs the hand to arrive, not just rest there
     for (const side of ['L', 'R']) {
-      const h = b.handBody(side);
+      const h = this.hand(side);
       const prev = this.prevHand[side]; this.prevHand[side] = h.ok ? h : null;
       if (!h.ok) continue;
       for (const m of this.moles) {
         if (m.state !== 'up' || t - m.born < 0.12) continue;
-        const hole = HOLES[m.hole];
+        const hole = this.holes[m.hole];
         const d = Math.hypot(h.x - hole.x, h.y - (hole.y + 0.1));
         const wasIn = prev && Math.hypot(prev.x - hole.x, prev.y - (hole.y + 0.1)) < HIT_R;
         if (d < HIT_R && !wasIn) this.whack(m, side, t);
@@ -94,7 +103,7 @@ export class MoleGame {
 
   whack(m, side, t) {
     m.state = 'bonked'; m.downAt = t;
-    const hole = HOLES[m.hole], T = TYPES[m.type];
+    const hole = this.holes[m.hole], T = TYPES[m.type];
     if (m.type === 'bomb') {
       this.bombsHit++; this.combo = 0; sfx.boom();
       this.app.hud.toast('BOOM!', '#ff5470', 600);
@@ -116,10 +125,9 @@ export class MoleGame {
   render() {
     const g = this.app.octx, b = this.app.body, t = this.time();
     g.clearRect(0, 0, innerWidth, innerHeight);
-    if (!b.center) return;
     // dim the camera slightly so the moles pop
     g.fillStyle = 'rgba(10, 6, 25, .25)'; g.fillRect(0, 0, innerWidth, innerHeight);
-    HOLES.forEach((h, i) => { if (this.onScreen(h)) this.drawHole(g, h); });
+    this.holes.forEach(h => this.drawHole(g, h));
     for (const m of this.moles) this.drawMole(g, m, t);
     for (const f of this.fx) {
       if (f.star) {
@@ -133,12 +141,6 @@ export class MoleGame {
       }
     }
     for (const side of ['L', 'R']) this.drawMallet(g, side);
-    // too close to the camera and the outer holes fall off-screen
-    if (HOLES.filter(h => this.onScreen(h)).length < 8) {
-      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(innerWidth / 2 - 230, innerHeight - 140, 460, 54);
-      g.fillStyle = '#ffd166'; g.font = '800 26px system-ui'; g.textAlign = 'center';
-      g.fillText('Step back so all the holes fit!', innerWidth / 2, innerHeight - 104);
-    }
     // timer
     const left = Math.max(0, Math.ceil(DURATION - t));
     g.fillStyle = left <= 10 ? '#ff5470' : '#fff'; g.font = '900 44px system-ui'; g.textAlign = 'center';
@@ -153,7 +155,7 @@ export class MoleGame {
   }
 
   drawMole(g, m, t) {
-    const h = HOLES[m.hole], p = this.toWin(h.x, h.y), r = MOLE_R * p.u;
+    const h = this.holes[m.hole], p = this.toWin(h.x, h.y), r = MOLE_R * p.u;
     // pop-up / drop-down animation
     let rise = Math.min(1, (t - m.born) / 0.12);
     if (m.state !== 'up') rise = Math.max(0, 1 - (t - m.downAt) / 0.2);
@@ -189,8 +191,8 @@ export class MoleGame {
   }
 
   drawMallet(g, side) {
-    const h = this.app.body.handBody(side); if (!h.ok) return;
-    const p = this.toWin(h.x, h.y), u = p.u;
+    const h = this.hand(side); if (!h.ok) return;
+    const p = this.toWin(h.x, h.y), u = p.u * 1.5;
     const tilt = side === 'L' ? -0.5 : 0.5;
     g.save(); g.translate(p.x, p.y); g.rotate(tilt);
     g.fillStyle = '#c8a070'; g.fillRect(-u * 0.05, 0, u * 0.1, u * 0.55);

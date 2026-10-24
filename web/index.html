@@ -68,6 +68,7 @@
   #btnExit { position: fixed; top: 70px; right: 24px; z-index: 25; display: none; font-size: 34px; padding: 26px 48px; min-width: 240px;
     background: rgba(255, 59, 92, .85); border-color: rgba(255,255,255,.7); }
   #btnExit.on { display: block; }
+  .beta { font-size: 12px; font-weight: 900; color: #07060f; background: var(--gold); border-radius: 6px; padding: 2px 6px; vertical-align: middle; }
   .help { position: fixed; bottom: 14px; left: 14px; color: var(--dim); font-size: 13px; z-index: 20; max-width: 50vw; }
 </style>
 </head>
@@ -105,6 +106,7 @@
     <div class="card" data-game="saber"><div class="ic">⚔️</div><div class="t">Beat Slicer</div><div class="d">Your forearms are lightsabers. Each block is a note: touch it as it arrives and you play the melody. Red = left, blue = right.</div><div class="fill"></div></div>
     <div class="card" data-game="wall"><div class="ic">🧱</div><div class="t">Hole in the Wall</div><div class="d">Walls fly at you with a body-shaped hole. Strike the pose, step sideways, or crouch to fit through.</div><div class="fill"></div></div>
     <div class="card" data-game="mole"><div class="ic">🔨</div><div class="t">Whack-a-Mole</div><div class="d">Moles pop up all around you. Bop them with your hands, grab the gold ones, dodge the bombs. 60 seconds.</div><div class="fill"></div></div>
+    <div class="card" data-game="shooter"><div class="ic">🚀</div><div class="t">Star Gunner <span class="beta">BETA</span></div><div class="d">Man the gun turret of a starship. Hold your hands together to fire, move them to aim. Blast asteroids, aliens and saucers.</div><div class="fill"></div></div>
     <div class="card" data-game="viewer"><div class="ic">🦴</div><div class="t">Joint Viewer</div><div class="d">Just your camera with the detected joints drawn over it, plus latency and confidence.</div><div class="fill"></div></div>
   </div>
 </section>
@@ -147,7 +149,7 @@
 <div class="cursor" id="curL"></div><div class="cursor" id="curR"></div>
 <div class="help">Esc = pause · walk out of frame to auto-pause</div>
 
-<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }</script>
 <script type="module" src="./js/main.js"></script>
 </body>
 </html>

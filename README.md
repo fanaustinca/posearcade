@@ -8,7 +8,8 @@ Your laptop or phone captures the camera and streams small JPEG frames over a We
 
 - **Beat Slicer**: a Beat Saber–style rhythm game where **every block is a note**. Your forearms become lightsabers (red = left, blue = right); touch a block as it arrives and it plays its note, so hitting them all performs the song. Block height follows pitch. It has 18 public-domain songs, each with its own instrument (Twinkle Twinkle, Frère Jacques, Ode to Joy, Amazing Grace, Greensleeves, Minuet in G, Für Elise, Korobeiniki, Hall of the Mountain King, and more), defined in `web/js/songs.js` in a simple text notation. Difficulty sets the tempo; Hard and Expert add bombs and require the matching saber colour.
 - **Hole in the Wall**: walls fly at you with a body-shaped hole cut out. Strike the pose, step sideways, or crouch to fit. Your glowing silhouette turns green or red as the wall approaches, and the fit has to match both the hole and the pose.
-- **Whack-a-Mole**: moles pop up around you, drawn over your live camera image, and your hands are the mallets. Gold moles score extra; bombs cost points. 60 seconds.
+- **Whack-a-Mole**: moles pop up at fixed spots across the camera view (move your body to reach them), drawn over your live image; your hands are the mallets. Gold moles score extra; bombs cost points. 60 seconds.
+- **Star Gunner (beta)**: first-person gun turret on a starship. Hold your hands together to fire (infinite ammo); where your joined hands are relative to your chest aims the gun. Endless waves of asteroids (big ones split), alien drones and plasma-firing saucers, with bloom, a procedural nebula and a gas giant.
 - **Joint Viewer**: your camera with the detected skeleton, hands, per-joint confidence, and latency stats.
 
 Menus are hands-free: hover a hand over a button to select it. The cursor follows your hand (MediaPipe hand tracking), so it keeps working even when your hand hides your forearm. Esc pauses; walking out of frame auto-pauses.
@@ -56,6 +57,6 @@ web/js/pose.js       camera capture, streaming, One Euro smoothing, body coordin
 web/js/audio.js      WebAudio instrument voices, chord backing, SFX
 web/js/songs.js      melodies + chords in text notation, parser
 web/js/main.js       menus, hand-hover selection, game loop, pause/results
-web/js/games/        saber.js (Beat Slicer), wall.js (Hole in the Wall), mole.js (Whack-a-Mole), viewer.js (Joint Viewer)
-web/vendor/          three.js r169 (MIT)
+web/js/games/        saber.js (Beat Slicer), wall.js (Hole in the Wall), mole.js (Whack-a-Mole), shooter.js (Star Gunner), viewer.js (Joint Viewer)
+web/vendor/          three.js r169 + bloom postprocessing addons (MIT)
 ```

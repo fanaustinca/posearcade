@@ -193,6 +193,25 @@ export const sfx = {
   },
   ding(m = 84) { VOICES.musicbox(m - 12, ctx.currentTime, 0.3, 1.2); },
   chord(m = 72) { const t = ctx.currentTime; [0, 4, 7, 12].forEach((d, i) => VOICES.musicbox(m + d - 12, t + i * 0.07, 0.4, 1)); },
+  laser(pan = 0) {
+    const t = ctx.currentTime, o = ctx.createOscillator(), f = ctx.createBiquadFilter(), g = ctx.createGain(), p = ctx.createStereoPanner();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(180, t + 0.12);
+    f.type = 'lowpass'; f.frequency.value = 3200; p.pan.value = pan;
+    env(g, t, 0.002, 0.16, 0.12); o.connect(f).connect(g).connect(p).connect(sfxBus); o.start(t); o.stop(t + 0.16);
+  },
+  hit() {
+    const t = ctx.currentTime, n = ctx.createBufferSource(); n.buffer = noise;
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 2500; f.Q.value = 1.5;
+    const g = ctx.createGain(); env(g, t, 0.001, 0.35, 0.06);
+    n.connect(f).connect(g).connect(sfxBus); n.start(t); n.stop(t + 0.1);
+  },
+  alarm() {
+    const t = ctx.currentTime;
+    for (let k = 0; k < 2; k++) {
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'square'; o.frequency.value = 880 - k * 220;
+      env(g, t + k * 0.12, 0.005, 0.08, 0.1); o.connect(g).connect(sfxBus); o.start(t + k * 0.12); o.stop(t + k * 0.12 + 0.12);
+    }
+  },
   tick() {
     const t = ctx.currentTime, n = ctx.createBufferSource(); n.buffer = noise;
     const f = ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 6000;

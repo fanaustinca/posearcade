@@ -5,6 +5,7 @@ import { SaberGame, SABER_DIFFS } from './games/saber.js';
 import { ViewerGame } from './games/viewer.js';
 import { WallGame } from './games/wall.js';
 import { MoleGame } from './games/mole.js';
+import { ShooterGame } from './games/shooter.js';
 import { SONGS } from './songs.js';
 
 const $ = (s) => document.querySelector(s);
@@ -166,7 +167,8 @@ function startCalib() {
   $('#calibText').textContent = {
     saber: 'Stand so your head, shoulders, and both arms are visible. Raise both hands above your shoulders to start.',
     wall: 'Stand in the middle of the frame with room to step left and right. Raise both hands above your shoulders to start.',
-    mole: 'Stand back so you can reach out to the sides and overhead. Raise both hands above your shoulders to start.',
+    mole: 'Moles pop up all over the camera view: move around to reach them. Raise both hands above your shoulders to start.',
+    shooter: 'Sit or stand facing the camera. Hands together = fire; move them to aim. Raise both hands above your shoulders to start.',
   }[lastGame.kind] || 'Raise both hands above your shoulders to start.';
 }
 function updateCalib(dt) {
@@ -188,12 +190,12 @@ function launch() {
   show('none');
   body.frameLocked = true;
   const opts = { ...lastGame };
-  const Game = { saber: SaberGame, wall: WallGame, mole: MoleGame, viewer: ViewerGame }[lastGame.kind];
+  const Game = { saber: SaberGame, wall: WallGame, mole: MoleGame, shooter: ShooterGame, viewer: ViewerGame }[lastGame.kind];
   game = new Game(app, opts);
   hud.el.classList.toggle('on', lastGame.kind !== 'viewer');
-  const is3d = lastGame.kind === 'saber' || lastGame.kind === 'wall';
-  glCanvas.style.display = is3d ? '' : 'none';
-  overlay.style.display = is3d ? 'none' : '';
+  const k = lastGame.kind;
+  glCanvas.style.display = k === 'saber' || k === 'wall' || k === 'shooter' ? '' : 'none';
+  overlay.style.display = k === 'saber' || k === 'wall' ? 'none' : '';
   $('#btnExit').classList.toggle('on', lastGame.kind === 'viewer');
   pose.setHands(lastGame.kind !== 'saber'); hud.score(0, 0, 1); hud.progress(0);
   paused = false; absentFor = 0;
