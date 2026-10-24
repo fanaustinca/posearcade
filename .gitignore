@@ -1,0 +1,8 @@
+# TLS cert + private key are generated per machine
+certs/
+# model weights download automatically
+models/
+*.pt
+*.log
+__pycache__/
+.env
