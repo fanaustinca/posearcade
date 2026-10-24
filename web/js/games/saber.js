@@ -13,8 +13,9 @@ export const SABER_DIFFS = {
 };
 
 // Comfortable reach zone in shoulder-width units (0 = shoulder line).
-const LANES = [-1.45, -0.55, 0.55, 1.45];
-const ROWS = [-0.6, 0.3, 1.1];
+const LANES = [-2.1, -1.1, 1.1, 2.1];
+// Block height range: low notes just under shoulder height, high notes overhead.
+const Y_MIN = -0.2, Y_MAX = 1.8;
 const SABER_LEN = 1.5, HIT_R = 0.55;
 const EARLY = 0.12, LATE = 0.14; // seconds around the hit time a block can be cut
 const COLORS = { L: 0xff3b5c, R: 0x2fa8ff };
@@ -29,17 +30,17 @@ function buildMap(song, diff) {
   const { notes: mel, duration } = parseSong(song, diff.tempo);
   const R = rng(hashStr(song.id)), notes = [];
   const lo = Math.min(...mel.map(n => n.midi)), hi = Math.max(...mel.map(n => n.midi));
-  const rowOf = (m) => hi === lo ? 1 : Math.round((m - lo) / (hi - lo) * 2);
+  const yOf = (m) => hi === lo ? (Y_MIN + Y_MAX) / 2 : Y_MIN + (m - lo) / (hi - lo) * (Y_MAX - Y_MIN);
   mel.forEach((n, i) => {
     const hand = i % 2 ? 'R' : 'L';
     const wide = diff.outer && n.barStart && i > 0;
-    notes.push({ ...n, hand, lane: hand === 'L' ? (wide ? 0 : 1) : (wide ? 3 : 2), row: rowOf(n.midi) });
+    notes.push({ ...n, hand, lane: hand === 'L' ? (wide ? 0 : 1) : (wide ? 3 : 2), y: yOf(n.midi) });
     // bombs sit in a gap, wide on the side that isn't about to play
     const next = mel[i + 1];
     if (next && next.t - n.t > 0.5 && R() < diff.bombs) {
       const nextHand = (i + 1) % 2 ? 'R' : 'L';
-      const row = rowOf(next.midi) === 1 ? (R() < 0.5 ? 0 : 2) : 1;
-      notes.push({ t: (n.t + next.t) / 2, bomb: true, lane: nextHand === 'L' ? 3 : 0, row });
+      const y = yOf(next.midi) > (Y_MIN + Y_MAX) / 2 ? Y_MIN + 0.3 : Y_MAX - 0.3;
+      notes.push({ t: (n.t + next.t) / 2, bomb: true, lane: nextHand === 'L' ? 3 : 0, y });
     }
   });
   return { notes, duration };
@@ -166,7 +167,7 @@ export class SaberGame {
     scene.background = new THREE.Color(0x07060f);
     scene.fog = new THREE.Fog(0x07060f, 18, 70);
     this.camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 200);
-    this.camera.position.set(0, 0.45, 7.2); this.camera.lookAt(0, 0.1, -20);
+    this.camera.position.set(0, 0.8, 5); this.camera.lookAt(0, 0.5, -20);
     scene.add(new THREE.HemisphereLight(0xb0a8ff, 0x201030, 1.1));
     const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(2, 4, 6); scene.add(key);
     this.tex = glowTexture();
@@ -229,7 +230,13 @@ export class SaberGame {
     renderer.setClearColor(0x07060f, 1);
   }
 
-  resize() { this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix(); }
+  resize() {
+    const a = innerWidth / innerHeight;
+    this.camera.aspect = a;
+    // back the camera up on narrow screens so the outer lanes stay visible
+    this.camera.position.z = Math.max(5, 3.2 / (Math.tan(27.5 * Math.PI / 180) * a));
+    this.camera.updateProjectionMatrix();
+  }
 
   start() {
     this.resize();
@@ -250,7 +257,7 @@ export class SaberGame {
       const mark = new THREE.Mesh(this.dotGeo, this.dotMat);
       mark.position.z = 0.4; mesh.add(mark);
     }
-    mesh.position.set(LANES[n.lane], ROWS[n.row], -60);
+    mesh.position.set(LANES[n.lane], n.y, -60);
     this.scene.add(mesh);
     this.live.push({ ...n, mesh, done: false });
   }
@@ -327,7 +334,7 @@ export class SaberGame {
       if (n.done) continue;
       const dtHit = t - n.t;
       if (dtHit < -EARLY || dtHit > LATE) continue;
-      const bx = LANES[n.lane], by = ROWS[n.row];
+      const bx = LANES[n.lane], by = n.y;
       // sweep between last frame's blade and this frame's
       let hitK = -1, bestDist = 9;
       for (let k = 0; k <= 6; k++) {
