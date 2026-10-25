@@ -806,7 +806,7 @@ export class TennisGame {
 
   // ---------- per-frame ----------
   update(dt) {
-    this.time += dt;
+    this.time += dt; this.lastDt = dt;
     this.updateSwing(dt);
     if (this.state === 'serve') this.updateServe(dt);
     else if (this.state === 'rally') this.updateRally(dt);
@@ -895,11 +895,12 @@ export class TennisGame {
     this.hitRing.material.opacity = show && me.contact?.x != null ? 0.55 + 0.3 * Math.sin(this.time * 10) : 0;
     if (me.contact?.x != null) this.hitRing.position.set(me.contact.x, 0.012, me.contactZ);
     // camera: behind and above you, easing with your movement
-    const cam = this.camera;
+    // (time-based easing, and snapped on the first frame, so slow PCs don't start inside your head)
+    const cam = this.camera, k = this.look ? 1 - Math.exp(-(this.lastDt || 0.016) * 5) : 1;
     const want = new THREE.Vector3(me.x * 0.55, 3.0, me.z + 5.4);
-    cam.position.lerp(want, 0.08);
+    cam.position.lerp(want, k);
     const look = new THREE.Vector3(me.x * 0.3, 0.4, me.z - 15);
-    this.look = this.look ? this.look.lerp(look, 0.08) : look;
+    this.look = this.look ? this.look.lerp(look, k) : look;
     cam.lookAt(this.look);
     this.composer.render();
     this.drawHud();
