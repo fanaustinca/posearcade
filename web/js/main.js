@@ -6,6 +6,7 @@ import { ViewerGame } from './games/viewer.js';
 import { WallGame } from './games/wall.js';
 import { MoleGame } from './games/mole.js';
 import { ShooterGame } from './games/shooter.js';
+import { TennisGame, TENNIS_DIFFS } from './games/tennis.js';
 import { SONGS } from './songs.js';
 
 const $ = (s) => document.querySelector(s);
@@ -85,7 +86,7 @@ function updateMenuHands(dt) {
 function clearFills() { document.querySelectorAll('.fill').forEach(f => f.style.width = '0'); document.querySelectorAll('.hot').forEach(h => h.classList.remove('hot')); }
 
 // ---------- menus ----------
-let chosenSong = SONGS[0], chosenDiff = 'Easy', lastGame = null;
+let chosenSong = SONGS[0], chosenDiff = 'Easy', chosenTennis = 'Novice', lastGame = null;
 const songRow = $('#songRow'), diffRow = $('#diffRow');
 for (const s of [...SONGS].sort((a, b) => a.level - b.level)) {
   const b = document.createElement('div'); b.className = 'btn song'; b.dataset.song = s.id;
@@ -96,7 +97,13 @@ for (const d of Object.keys(SABER_DIFFS)) {
   const b = document.createElement('div'); b.className = 'btn'; b.dataset.diff = d;
   b.innerHTML = `${d}<div class="fill"></div>`; diffRow.appendChild(b);
 }
+const tennisRow = $('#tennisRow');
+for (const d of Object.keys(TENNIS_DIFFS)) {
+  const b = document.createElement('div'); b.className = 'btn'; b.dataset.tdiff = d;
+  b.innerHTML = `${d}<div class="fill"></div>`; tennisRow.appendChild(b);
+}
 function refreshSel() {
+  tennisRow.querySelectorAll('.btn').forEach(b => b.classList.toggle('sel', b.dataset.tdiff === chosenTennis));
   songRow.querySelectorAll('.btn').forEach(b => b.classList.toggle('sel', b.dataset.song === chosenSong.id));
   diffRow.querySelectorAll('.btn').forEach(b => b.classList.toggle('sel', b.dataset.diff === chosenDiff));
 }
@@ -104,6 +111,8 @@ refreshSel();
 function activate(el) {
   sfx.ding(el.dataset.game ? 79 : 84);
   if (el.dataset.game === 'saber') { show('scrSongs'); return; }
+  if (el.dataset.game === 'tennis') { show('scrTennis'); return; }
+  if (el.dataset.tdiff) { chosenTennis = el.dataset.tdiff; refreshSel(); return; }
   if (el.dataset.game === 'viewer') { lastGame = { kind: 'viewer' }; endGame(); launch(); return; }
   if (el.dataset.game) { lastGame = { kind: el.dataset.game }; startCalib(); return; }
   if (el.dataset.song) { chosenSong = SONGS.find(s => s.id === el.dataset.song); refreshSel(); return; }
@@ -111,6 +120,7 @@ function activate(el) {
   switch (el.dataset.act) {
     case 'menu': endGame(); show('scrMenu'); break;
     case 'play': lastGame = { kind: 'saber', song: chosenSong, diff: chosenDiff }; startCalib(); break;
+    case 'playTennis': lastGame = { kind: 'tennis', diff: chosenTennis }; startCalib(); break;
     case 'retry': startCalib(); break;
     case 'resume': resume(); break;
     case 'quit': endGame(); show('scrMenu'); break;
@@ -195,6 +205,7 @@ function startCalib() {
     wall: 'Stand in the middle of the frame with room to step left and right. Raise both hands above your shoulders to start.',
     mole: 'Moles pop up all over the camera view: move around to reach them. Raise both hands above your shoulders to start.',
     shooter: 'Sit or stand facing the camera. Hands together = fire; move them to aim. Raise both hands above your shoulders to start.',
+    tennis: 'Stand facing the screen with room to swing your arms. Your player runs to the ball — you swing! Raise both hands above your shoulders to start.',
   }[lastGame.kind] || 'Raise both hands above your shoulders to start.';
 }
 function updateCalib(dt) {
@@ -216,14 +227,14 @@ function launch() {
   show('none');
   body.frameLocked = true;
   const opts = { ...lastGame };
-  const Game = { saber: SaberGame, wall: WallGame, mole: MoleGame, shooter: ShooterGame, viewer: ViewerGame }[lastGame.kind];
+  const Game = { saber: SaberGame, wall: WallGame, mole: MoleGame, shooter: ShooterGame, tennis: TennisGame, viewer: ViewerGame }[lastGame.kind];
   game = new Game(app, opts);
   hud.el.classList.toggle('on', lastGame.kind !== 'viewer');
   const k = lastGame.kind;
-  glCanvas.style.display = k === 'saber' || k === 'wall' || k === 'shooter' ? '' : 'none';
+  glCanvas.style.display = k === 'saber' || k === 'wall' || k === 'shooter' || k === 'tennis' ? '' : 'none';
   overlay.style.display = k === 'saber' || k === 'wall' ? 'none' : '';
   $('#btnExit').classList.toggle('on', lastGame.kind === 'viewer');
-  pose.setHands(lastGame.kind !== 'saber'); hud.score(0, 0, 1); hud.progress(0);
+  pose.setHands(k !== 'saber' && k !== 'tennis'); // these read the pose wrists only hud.score(0, 0, 1); hud.progress(0);
   paused = false; absentFor = 0;
   game.start();
 }
@@ -309,5 +320,5 @@ function frame(now) {
 resize();
 requestAnimationFrame(frame);
 // Test hook: start a game without the hands-up calibration.
-window.pa.launch = (kind, diff = 'Normal', song = 'twinkle') => { lastGame = kind === 'saber' ? { kind, song: SONGS.find(s => s.id === song), diff } : { kind }; endGame(); launch(); };
+window.pa.launch = (kind, diff = 'Normal', song = 'twinkle') => { lastGame = kind === 'saber' ? { kind, song: SONGS.find(s => s.id === song), diff } : { kind, diff }; endGame(); launch(); };
 Object.defineProperty(window.pa, 'game', { get: () => game });
