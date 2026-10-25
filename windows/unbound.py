@@ -145,9 +145,9 @@ def providers_for(backend):
     return ["CPUExecutionProvider"]
 
 
-def make_engine(backend, model, gpu_name):
+def make_engine(backend, model, gpu_name, log_level=3):
     from engine import OnnxPose
-    eng = OnnxPose(MODELS / model, providers_for(backend), gpu=gpu_name)
+    eng = OnnxPose(MODELS / model, providers_for(backend), gpu=gpu_name, log_level=log_level)
     want = {"cuda": "CUDAExecutionProvider", "dml": "DmlExecutionProvider", "cpu": "CPUExecutionProvider"}[backend]
     if eng.provider != want:
         raise RuntimeError(f"{want} not available (got {eng.provider})")
@@ -168,7 +168,7 @@ def probe(backend, out):
         frame = np.random.default_rng(0).integers(0, 255, (360, 640, 3), dtype=np.uint8)
 
         def bench(model):
-            eng = make_engine(backend, model, name)
+            eng = make_engine(backend, model, name, log_level=2)
             for _ in range(3):
                 eng(frame)
             times = sorted(eng(frame)[1] for _ in range(10))
@@ -336,6 +336,10 @@ def main():
             activate_runtime(choice["backend"])
             os.environ["POSE_MODEL"] = server.MODEL_NAME = choice["model"]
             server.load_engine(make_engine(choice["backend"], choice["model"], choice.get("gpu")))
+            if choice["backend"] == "cpu" and not a.backend:
+                note = "No GPU engine could start on this PC, so it runs on the CPU with the small model (playable, but slower)."
+            elif choice["backend"] == "dml" and note is None:
+                note = "CUDA couldn't start, so it uses DirectML instead. Updating your NVIDIA driver may help."
             server.status["detail"] = note
             log.info("engine ready: %s %s on %s", server.model.backend, choice["model"], server.model.gpu)
         except Exception as e:

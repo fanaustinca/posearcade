@@ -48,6 +48,9 @@ jobs:
           $app = "$env:LOCALAPPDATA\Programs\Unbound"
           & "$app\runtime\python.exe" "$app\app\windows\unbound.py" --check-dlls
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          python -m pip install -q pefile
+          python windows/test/check_imports.py $app
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Self-test the installed app (auto engine pick, then CPU)
         run: |

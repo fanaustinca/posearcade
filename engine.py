@@ -48,11 +48,11 @@ class OnnxPose:
     """YOLO11-pose ONNX export: input (1,3,H,W) RGB 0..1, output (1,56,N) with
     rows cx,cy,w,h, person score, then 17 * (x, y, visibility) in input pixels."""
 
-    def __init__(self, path, providers, gpu=None):
+    def __init__(self, path, providers, gpu=None, log_level=3):
         import onnxruntime as ort
         so = ort.SessionOptions()
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        so.log_severity_level = 3
+        so.log_severity_level = log_level  # 2 also logs why a GPU provider fell back
         self.sess = ort.InferenceSession(str(path), so, providers=providers)
         inp = self.sess.get_inputs()[0]
         self.input = inp.name
