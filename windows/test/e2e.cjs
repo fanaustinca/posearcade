@@ -37,7 +37,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await p.screenshot({ path: `${OUT}/e2e-menu.png` });
 
   for (const [kind, diff, song, wait] of [['saber', 'Normal', 'ode', 7000], ['wall', 0, 0, 7000], ['mole', 0, 0, 6000],
-    ['shooter', 0, 0, 8000], ['viewer', 0, 0, 3000]]) {
+    ['shooter', 0, 0, 8000], ['tennis', 'Novice', 0, 8000], ['viewer', 0, 0, 3000]]) {
     const before = errors.length;
     await p.evaluate((k, d, s) => d ? pa.launch(k, d, s) : pa.launch(k), kind, diff, song);
     await sleep(2500);

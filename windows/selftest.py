@@ -26,7 +26,7 @@ def run(url, server):
     html = urllib.request.urlopen(url, timeout=10).read().decode()
     check("index page", "<title>Unbound</title>" in html)
     for f in ("js/main.js", "js/pose.js", "js/games/saber.js", "js/games/wall.js", "js/games/mole.js",
-              "js/games/shooter.js", "js/games/viewer.js", "vendor/three.module.js"):
+              "js/games/shooter.js", "js/games/tennis.js", "js/games/viewer.js", "vendor/three.module.js"):
         try:
             code = urllib.request.urlopen(url + f, timeout=10).status
         except Exception as e:
