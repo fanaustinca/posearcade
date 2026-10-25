@@ -127,6 +127,32 @@ PoseClient.listCameras().then(cams => {
     const o = document.createElement('option'); o.value = c.deviceId; o.textContent = c.label || 'Camera'; $('#camSel').appendChild(o);
   }
 }).catch(() => { });
+
+// ---------- pose engine status ----------
+// The Windows app opens this window while it is still picking and loading the
+// GPU engine, so show progress; it also quits once no page holds /ws/life open.
+let engine = null, lifeWs = null;
+function keepAlive() {
+  lifeWs = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/life`);
+  lifeWs.onclose = () => setTimeout(keepAlive, 1000);
+}
+async function pollEngine() {
+  try { engine = await (await fetch('api/info', { cache: 'no-store' })).json(); } catch { engine = null; }
+  const el = $('#engineMsg');
+  if (engine) {
+    if (engine.local && !lifeWs) {
+      keepAlive();
+      $('#stNet').firstChild.nodeValue = 'engine ';
+      $('#startSub').innerHTML = 'Your GPU tracks your joints right here on this PC — nothing leaves your computer.<br>Stand back so your upper body and both arms fit in the frame.';
+    }
+    if (engine.state === 'ready') el.textContent = `Pose engine: ${engine.gpu ? engine.gpu + ' · ' : ''}${engine.backend}${engine.detail ? ' — ' + engine.detail : ''}`;
+    else if (engine.state === 'error') el.textContent = '⚠ Pose engine failed to start: ' + engine.error;
+    else el.textContent = '⏳ ' + (engine.detail || 'Starting the pose engine…');
+  }
+  if (!engine || engine.state === 'loading') setTimeout(pollEngine, 700);
+}
+pollEngine();
+
 $('#btnStart').addEventListener('click', async () => {
   try {
     if (!window.isSecureContext) throw new Error('Camera needs HTTPS — open this page via https://');
@@ -257,7 +283,8 @@ function updateStatus(now) {
   const s = pose.stats;
   const set = (id, val, cls) => { const el = $(id); el.querySelector('b').textContent = val; el.className = 'pill ' + (cls || ''); };
   set('#stCam', s.camera ? `${pose.video.videoWidth}×${pose.video.videoHeight}` : 'off', s.camera ? 'good' : 'bad');
-  set('#stNet', s.connected ? 'connected' : 'offline', s.connected ? 'good' : 'bad');
+  const idle = engine?.state === 'ready' ? 'ready' : engine?.state === 'loading' ? 'starting…' : 'offline';
+  set('#stNet', s.connected ? 'connected' : idle, s.connected || idle === 'ready' ? 'good' : 'bad');
   set('#stLat', s.connected ? `${s.latency.toFixed(0)} ms (gpu ${s.infer.toFixed(1)})` : '–', s.latency > 120 ? 'bad' : 'good');
   set('#stFps', s.connected ? `${s.fps.toFixed(0)} fps` : '–', s.fps < 15 ? 'bad' : 'good');
   set('#stBody', body.present ? 'tracked' : 'not seen', body.present ? 'good' : 'bad');

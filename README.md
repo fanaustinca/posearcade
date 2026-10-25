@@ -42,6 +42,32 @@ Settings (environment variables):
 | `POSE_IMGSZ` | `640` | inference size; 480 is a bit faster |
 | `PORT` | `8600` | |
 
+## Windows app (one installer, everything runs on your PC)
+
+Download **Unbound-Setup.exe** from the [`windows-latest` release](../../releases/tag/windows-latest), run it, and play. It installs per user, so there is no admin prompt, and adds a Start menu and desktop shortcut.
+
+- **Nothing else to install.** The installer bundles Python, the pose and hand models, the CUDA 12 runtime with cuDNN, and ONNX Runtime. The PC only needs its normal GPU driver.
+- **GPU picked automatically.** On first launch it reads the NVIDIA driver through NVML and tries each engine in a separate process, keeping the fastest one that works:
+  1. **CUDA**: NVIDIA GPU with a driver from 2023 or newer (528+). An RTX 3050 or better is recommended.
+  2. **DirectML**: any DirectX 12 GPU, and NVIDIA cards whose driver is too old for CUDA 12 (the start screen tells you to update).
+  3. **CPU**: uses the small pose model so it stays playable.
+
+  If the big model is slower than 45 ms a frame, it switches to the small one. The choice is cached in `%LOCALAPPDATA%\Unbound\engine.json` and redone after a driver or app update.
+- **One window.** Games open in a chromeless Chrome or Edge window on `http://127.0.0.1`, and camera access is granted automatically. Closing the window quits the app.
+- Windows SmartScreen may warn because the installer isn't code-signed. Click **More info → Run anyway**.
+- Logs: `%LOCALAPPDATA%\Unbound\unbound.log`. Useful flags for `Unbound.exe`:
+  - `--reprobe` picks the GPU engine again.
+  - `--backend cuda|dml|cpu` forces an engine.
+  - `--selftest` checks the install.
+
+**Building the installer.** Every push to the `windows` branch builds it on GitHub Actions ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)) and publishes the release. Before publishing, the workflow:
+  - installs the build silently;
+  - checks that the CUDA libraries load;
+  - self-tests the engine and hand tracker;
+  - plays every game in Chrome with a fake webcam.
+
+To build locally on Windows, you need Python 3.12, the Visual Studio 2022 C++ tools and Inno Setup 6. Run `powershell -ExecutionPolicy Bypass -File windows\build.ps1 -Version 1.0.0`.
+
 ## Tips
 
 - Stand back so your head, shoulders, and both arms (fully raised) stay in frame.
@@ -52,6 +78,8 @@ Settings (environment variables):
 
 ```
 server.py            FastAPI + WebSocket pose server (newest-frame-wins, one shared GPU model)
+engine.py            pose backends: PyTorch (Spark) and ONNX Runtime CUDA/DirectML/CPU (Windows)
+windows/             Windows app: launcher (unbound.py, launcher/), GPU detection, build + installer scripts, tests
 web/index.html       UI shell
 web/js/pose.js       camera capture, streaming, One Euro smoothing, body coordinate frame
 web/js/audio.js      WebAudio instrument voices, chord backing, SFX

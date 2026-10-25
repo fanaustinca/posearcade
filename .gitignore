@@ -6,3 +6,6 @@ models/
 *.log
 __pycache__/
 .env
+# Windows build output
+build/
+dist/

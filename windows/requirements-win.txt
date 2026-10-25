@@ -1,0 +1,15 @@
+# Bundled into the Windows app's embedded Python (see build.ps1).
+# ONNX Runtime and mediapipe are installed separately, without their extra deps.
+fastapi==0.162.0
+uvicorn==0.54.0
+websockets==17.3
+numpy==2.5.2
+opencv-python-headless==5.0.0.93
+# mediapipe needs these
+absl-py==2.5.1
+flatbuffers==25.12.19
+certifi
+matplotlib  # imported by mediapipe.tasks.vision (drawing helpers)
+# onnxruntime needs these
+protobuf
+packaging

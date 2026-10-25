@@ -1,0 +1,109 @@
+name: Windows installer
+
+on:
+  push:
+    branches: [windows]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      VERSION: 0.1.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        run: ./windows/build.ps1 -Version $env:VERSION
+
+      - name: Install it (silent, like a user double-clicking it)
+        run: |
+          $setup = Get-ChildItem dist\Unbound-Setup-*.exe | Select-Object -First 1
+          $p = Start-Process $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/LOG=install.log' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 50; exit 1 }
+          $app = "$env:LOCALAPPDATA\Programs\Unbound"
+          if (-not (Test-Path "$app\Unbound.exe")) { throw "not installed" }
+          "{0:N0} MB installed" -f ((Get-ChildItem $app -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Check the bundled CUDA libraries load
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\Unbound"
+          & "$app\runtime\python.exe" "$app\app\windows\unbound.py" --check-dlls
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Self-test the installed app (auto engine pick, then CPU)
+        run: |
+          python -c "import ultralytics, shutil, os; shutil.copy(os.path.join(os.path.dirname(ultralytics.__file__), 'assets', 'bus.jpg'), 'bus.jpg')"
+          $env:UNBOUND_TEST_IMAGE = "$PWD\bus.jpg"
+          $app = "$env:LOCALAPPDATA\Programs\Unbound"
+          foreach ($extra in @(), @('--backend', 'cpu')) {
+            $p = Start-Process "$app\Unbound.exe" -ArgumentList (@('--selftest', '--reprobe') + $extra) -Wait -PassThru
+            Get-Content "$env:LOCALAPPDATA\Unbound\console.log" -Tail 40
+            Get-Content "$env:LOCALAPPDATA\Unbound\unbound.log" -Tail 25
+            Remove-Item "$env:LOCALAPPDATA\Unbound\console.log"
+            if ($p.ExitCode -ne 0) { throw "selftest failed ($extra)" }
+          }
+
+      - name: Play every game in Chrome with a fake webcam
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\Unbound"
+          python -m pip install -q opencv-python-headless
+          python windows/test/make_y4m.py bus.jpg cam.y4m
+          New-Item -ItemType Directory -Force e2e | Out-Null
+          Push-Location e2e; npm init -y | Out-Null; npm install --silent puppeteer-core@23; Pop-Location
+          $srv = Start-Process "$app\Unbound.exe" -ArgumentList '--serve', '--port', '8600' -PassThru
+          $env:URL = "http://127.0.0.1:8600/"; $env:Y4M = "$PWD\cam.y4m"; $env:OUT = "$PWD\e2e"
+          $env:CHROME = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          $env:PUPPETEER = "$PWD\e2e\node_modules\puppeteer-core"
+          node windows/test/e2e.cjs
+          $code = $LASTEXITCODE
+          Get-Process pythonw -ErrorAction SilentlyContinue | Stop-Process -Force
+          exit $code
+
+      - name: Collect logs
+        if: always()
+        run: |
+          New-Item -ItemType Directory -Force results | Out-Null
+          Copy-Item e2e\*.png, install.log, "$env:LOCALAPPDATA\Unbound\*.log", "$env:LOCALAPPDATA\Unbound\*.json" results\ -ErrorAction SilentlyContinue
+
+      - name: Upload test screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: results/
+
+      - name: Publish the installer as the "windows-latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $setup = Get-ChildItem dist\Unbound-Setup-*.exe | Select-Object -First 1
+          Copy-Item $setup.FullName dist\Unbound-Setup.exe
+          gh release delete windows-latest --yes --cleanup-tag 2>$null
+          $notes = @"
+          Unbound for Windows, build $env:VERSION ($env:GITHUB_SHA).
+
+          **Download Unbound-Setup.exe, run it, play.** No Python, CUDA or drivers to install beyond a normal NVIDIA/GPU driver.
+          Works best on an NVIDIA RTX 3050 or better; other GPUs use DirectML, and it falls back to the CPU if needed.
+
+          Windows may say "Windows protected your PC" because the installer isn't code-signed: click **More info → Run anyway**.
+          "@
+          gh release create windows-latest dist\Unbound-Setup.exe --prerelease --target $env:GITHUB_SHA --title "Unbound for Windows (latest build)" --notes $notes

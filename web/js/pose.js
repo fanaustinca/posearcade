@@ -1,4 +1,4 @@
-// Camera capture -> Spark pose server -> smoothed, mirrored body tracking.
+// Camera capture -> pose server (Spark or local GPU) -> smoothed, mirrored body tracking.
 //
 // Coordinate spaces exposed to games:
 //   screen: mirrored camera image, x in [0,1] left->right, y in [0,1] top->bottom
@@ -48,7 +48,7 @@ export class PoseClient {
     this.handsOn = true;
   }
 
-  // Hand tracking costs CPU on the Spark; games that don't need it switch it off.
+  // Hand tracking costs server CPU; games that don't need it switch it off.
   setHands(on) {
     this.handsOn = on;
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ hands: on }));

@@ -1,5 +1,7 @@
 """Unbound server: receives JPEG camera frames over WebSocket, runs
-YOLO pose on the GB10, and streams back body keypoints.
+YOLO pose on the GPU, and streams back body keypoints. Runs on the DGX Spark
+(PyTorch, HTTPS for phones/laptops on the LAN) and inside the Windows app
+(ONNX Runtime, plain HTTP on localhost, launched by windows/unbound.py).
 
 Wire format (client -> server, binary):
     8 bytes  float64 little-endian client timestamp (performance.now() ms)
@@ -25,30 +27,50 @@ from pathlib import Path
 import cv2
 import mediapipe as mp
 import numpy as np
-import torch
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from mediapipe.tasks import python as mpt
 from mediapipe.tasks.python import vision as mpv
-from ultralytics import YOLO
 
 ROOT = Path(__file__).parent
 WEB = ROOT / "web"
+MODELS = Path(os.environ.get("UNBOUND_MODELS", ROOT / "models"))
 MODEL_NAME = os.environ.get("POSE_MODEL", "yolo11l-pose.pt")
 IMGSZ = int(os.environ.get("POSE_IMGSZ", "640"))
 PORT = int(os.environ.get("PORT", "8600"))
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
-model = YOLO(str(ROOT / "models" / MODEL_NAME) if (ROOT / "models" / MODEL_NAME).exists() else MODEL_NAME)
-model.to(device)
+model = None  # set by load_engine(); see engine.py
+ready = threading.Event()
+status = {"state": "loading", "error": None, "detail": None}
 gpu_lock = threading.Lock()  # one inference at a time across all clients
+life = {"clients": 0, "seen": False, "last": time.monotonic()}  # open pages, for the Windows app
+
+
+def load_engine(engine=None):
+    """Load (or adopt) the pose engine and warm it up. Safe to call from a thread."""
+    global model
+    try:
+        if engine is None:
+            from engine import UltralyticsPose
+            weights = MODELS / MODEL_NAME
+            engine = UltralyticsPose(str(weights) if weights.exists() else MODEL_NAME, IMGSZ)
+        model = engine
+        # Warm up so the first real frame isn't slow (cudnn autotune, half-cast).
+        for _ in range(3):
+            infer(np.zeros((360, 640, 3), np.uint8))
+        status["state"] = "ready"
+    except Exception as e:  # reported to the page via /api/info
+        status["state"], status["error"] = "error", f"{type(e).__name__}: {e}"
+        raise
+    finally:
+        ready.set()
 
 # Hands: MediaPipe Hand Landmarker on the CPU. A hand a few metres away is
 # only a few dozen pixels, too small for MediaPipe's full-frame palm search,
 # so we crop around each wrist the pose model found and look there.
-HAND_MODEL = ROOT / "models" / "hand_landmarker.task"
+HAND_MODEL = MODELS / "hand_landmarker.task"
 HAND_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
 PALM = (0, 5, 9, 13, 17)
 CROP = 224
@@ -99,33 +121,12 @@ def infer(img):
     if img is None:
         return None
     h, w = img.shape[:2]
-    t0 = time.perf_counter()
     with gpu_lock:
-        res = model.predict(img, imgsz=IMGSZ, conf=0.35, quantize=16 if device == "cuda" else None,
-                            device=device, verbose=False, max_det=4)[0]
-    ms = (time.perf_counter() - t0) * 1000
-    people = []
-    if res.keypoints is not None and len(res.boxes):
-        kxy = res.keypoints.xy.cpu().numpy()
-        kc = res.keypoints.conf.cpu().numpy() if res.keypoints.conf is not None else np.ones(kxy.shape[:2])
-        boxes = res.boxes.xyxy.cpu().numpy()
-        scores = res.boxes.conf.cpu().numpy()
-        for i in range(len(boxes)):
-            kp = [[round(float(x) / w, 4), round(float(y) / h, 4), round(float(c), 3)]
-                  for (x, y), c in zip(kxy[i], kc[i])]
-            b = boxes[i]
-            people.append({"score": round(float(scores[i]), 3),
-                           "box": [round(float(b[0]) / w, 4), round(float(b[1]) / h, 4),
-                                   round(float(b[2]) / w, 4), round(float(b[3]) / h, 4)],
-                           "kp": kp})
-        # largest person first: that's the player
-        people.sort(key=lambda p: -(p["box"][2] - p["box"][0]) * (p["box"][3] - p["box"][1]))
+        people, ms = model(img)
+    # largest person first: that's the player
+    people.sort(key=lambda p: -(p["box"][2] - p["box"][0]) * (p["box"][3] - p["box"][1]))
     return {"w": w, "h": h, "ms": round(ms, 1), "people": people}
 
-
-# Warm up so the first real frame isn't slow (cudnn autotune, half-cast).
-for _ in range(3):
-    infer(np.zeros((360, 640, 3), np.uint8))
 
 app = FastAPI()
 
@@ -137,13 +138,37 @@ def index():
 
 @app.get("/api/info")
 def info():
-    return JSONResponse({"model": MODEL_NAME, "imgsz": IMGSZ, "device": device,
-                         "gpu": torch.cuda.get_device_name(0) if device == "cuda" else None})
+    out = {"app": "unbound", "state": status["state"], "error": status["error"], "detail": status["detail"],
+           "local": os.environ.get("UNBOUND_LOCAL") == "1"}
+    if model is not None:
+        out.update(model=MODEL_NAME, imgsz=model.imgsz, backend=model.backend, gpu=model.gpu)
+    return JSONResponse(out)
+
+
+@app.websocket("/ws/life")
+async def ws_life(ws: WebSocket):
+    """Held open by every page; the Windows app quits once none are left."""
+    await ws.accept()
+    life["clients"] += 1
+    life["seen"] = True
+    try:
+        while True:
+            if (await ws.receive())["type"] == "websocket.disconnect":
+                break
+    except WebSocketDisconnect:
+        pass
+    finally:
+        life["clients"] -= 1
+        life["last"] = time.monotonic()
 
 
 @app.websocket("/ws")
 async def ws_pose(ws: WebSocket):
     await ws.accept()
+    await asyncio.to_thread(ready.wait)
+    if model is None:
+        await ws.close(code=1011)
+        return
     latest = {"frame": None}
     have_frame = asyncio.Event()
     closed = False
@@ -235,7 +260,8 @@ def ensure_cert():
 
 
 if __name__ == "__main__":
+    load_engine()
     cert, key = ensure_cert()
-    print(f"Unbound on https://0.0.0.0:{PORT}  model={MODEL_NAME} imgsz={IMGSZ} device={device}", flush=True)
+    print(f"Unbound on https://0.0.0.0:{PORT}  model={MODEL_NAME} imgsz={IMGSZ} backend={model.backend}", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=PORT, ssl_certfile=cert, ssl_keyfile=key,
                 ws_max_size=4 * 1024 * 1024, log_level="warning")
