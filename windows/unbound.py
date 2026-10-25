@@ -104,9 +104,8 @@ def check_dlls():
     (No GPU needed: the driver itself is only touched when a session starts.)"""
     activate_runtime("cuda")
     d = RT / "cuda"
-    dlls = sorted(glob.glob(str(d / "nvidia" / "*" / "bin" / "*.dll"))) + [
-        str(d / "onnxruntime" / "capi" / "onnxruntime_providers_shared.dll"),
-        str(d / "onnxruntime" / "capi" / "onnxruntime_providers_cuda.dll")]
+    # (onnxruntime_providers_cuda.dll itself can only be loaded by ONNX Runtime; the session test below covers it)
+    dlls = sorted(glob.glob(str(d / "nvidia" / "*" / "bin" / "*.dll")))
     bad = 0
     for f in dlls:
         try:
@@ -120,6 +119,19 @@ def check_dlls():
                             "print(o.__version__, o.get_available_providers())"], capture_output=True, text=True)
         print(b, "runtime:", r.stdout.strip() or r.stderr.strip()[-500:])
         bad += r.returncode != 0
+    # Start a real CUDA session in a fresh process. Without an NVIDIA GPU this
+    # fails with "no CUDA device"; it must never fail with a missing DLL (126).
+    model = next(iter(sorted(MODELS.glob("*.onnx"))), None)
+    if model:
+        r = subprocess.run([sys.executable, __file__, "--probe", "cuda", "--out", str(DATA / "check-cuda.json")],
+                           capture_output=True, text=True, timeout=300)
+        log_tail = (DATA / "console.log").read_text(errors="replace")[-3000:] if (DATA / "console.log").exists() else ""
+        res = (DATA / "check-cuda.json").read_text() if (DATA / "check-cuda.json").exists() else "{}"
+        missing = "error 126" in (r.stderr + log_tail) or "error 1114" in (r.stderr + log_tail)
+        print("cuda session:", res, "\n", (r.stderr + log_tail)[-1500:])
+        if missing:
+            print("FAIL CUDA provider could not load its DLLs")
+            bad += 1
     print("DLL CHECK", "FAILED" if bad else "PASSED")
     return 1 if bad else 0
 
@@ -289,6 +301,7 @@ def main():
     ap.add_argument("--check-dlls", action="store_true")
     a = ap.parse_args()
     if a.check_dlls:
+        DATA.mkdir(parents=True, exist_ok=True)
         sys.exit(check_dlls())
     setup_logging()
     if a.probe:
