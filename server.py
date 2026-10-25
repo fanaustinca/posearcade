@@ -1,4 +1,4 @@
-"""Pose Arcade server: receives JPEG camera frames over WebSocket, runs
+"""Unbound server: receives JPEG camera frames over WebSocket, runs
 YOLO pose on the GB10, and streams back body keypoints.
 
 Wire format (client -> server, binary):
@@ -236,6 +236,6 @@ def ensure_cert():
 
 if __name__ == "__main__":
     cert, key = ensure_cert()
-    print(f"Pose Arcade on https://0.0.0.0:{PORT}  model={MODEL_NAME} imgsz={IMGSZ} device={device}", flush=True)
+    print(f"Unbound on https://0.0.0.0:{PORT}  model={MODEL_NAME} imgsz={IMGSZ} device={device}", flush=True)
     uvicorn.run(app, host="0.0.0.0", port=PORT, ssl_certfile=cert, ssl_keyfile=key,
                 ws_max_size=4 * 1024 * 1024, log_level="warning")

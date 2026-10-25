@@ -1,4 +1,4 @@
-# Pose Arcade
+# Unbound
 
 Full-body motion games in the browser, powered by GPU pose estimation on a separate machine.
 
