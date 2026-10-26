@@ -295,7 +295,8 @@ function updateStatus(now) {
   const set = (id, val, cls) => { const el = $(id); el.querySelector('b').textContent = val; el.className = 'pill ' + (cls || ''); };
   set('#stCam', s.camera ? `${pose.video.videoWidth}×${pose.video.videoHeight}` : 'off', s.camera ? 'good' : 'bad');
   const idle = engine?.state === 'ready' ? 'ready' : engine?.state === 'loading' ? 'starting…' : 'offline';
-  set('#stNet', s.connected ? 'connected' : idle, s.connected || idle === 'ready' ? 'good' : 'bad');
+  const up = s.connected && (!engine || engine.state === 'ready');
+  set('#stNet', up ? 'connected' : idle, up || idle === 'ready' ? 'good' : 'bad');
   set('#stLat', s.connected ? `${s.latency.toFixed(0)} ms (gpu ${s.infer.toFixed(1)})` : '–', s.latency > 120 ? 'bad' : 'good');
   set('#stFps', s.connected ? `${s.fps.toFixed(0)} fps` : '–', s.fps < 15 ? 'bad' : 'good');
   set('#stBody', body.present ? 'tracked' : 'not seen', body.present ? 'good' : 'bad');

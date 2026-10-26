@@ -83,6 +83,9 @@ def activate_runtime(backend):
         return  # dev checkout: use whatever onnxruntime is installed
     sys.path.insert(0, str(d))
     if backend == "cuda" and sys.platform == "win32":
+        # Room for the driver to keep JIT-compiled kernels between launches
+        # (the 256 MB default is too small for cuDNN on newer GPUs).
+        os.environ.setdefault("CUDA_CACHE_MAXSIZE", str(4 << 30))
         bins = sorted(glob.glob(str(d / "nvidia" / "*" / "bin")))
         os.environ["PATH"] = os.pathsep.join(bins + [os.environ.get("PATH", "")])
         for b in bins:
@@ -138,7 +141,7 @@ def check_dlls():
 
 def providers_for(backend):
     if backend == "cuda":
-        return [("CUDAExecutionProvider", {"cudnn_conv_algo_search": "EXHAUSTIVE", "do_copy_in_default_stream": True}),
+        return [("CUDAExecutionProvider", {"cudnn_conv_algo_search": "HEURISTIC", "do_copy_in_default_stream": True}),
                 "CPUExecutionProvider"]
     if backend == "dml":
         return [("DmlExecutionProvider", {"device_id": 0}), "CPUExecutionProvider"]
@@ -168,7 +171,9 @@ def probe(backend, out):
         frame = np.random.default_rng(0).integers(0, 255, (360, 640, 3), dtype=np.uint8)
 
         def bench(model):
+            t = time.monotonic()
             eng = make_engine(backend, model, name, log_level=2)
+            log.info("probe %s: %s session took %.1f s", backend, model, time.monotonic() - t)
             for _ in range(3):
                 eng(frame)
             times = sorted(eng(frame)[1] for _ in range(10))
@@ -331,11 +336,17 @@ def main():
         def report(s):
             server.status["detail"] = s
         try:
+            t0 = time.monotonic()
             choice, note = choose_engine(a.backend, a.reprobe, report)
+            t1 = time.monotonic()
             report(f"Loading the pose model ({choice['backend'].upper()})…")
             activate_runtime(choice["backend"])
             os.environ["POSE_MODEL"] = server.MODEL_NAME = choice["model"]
-            server.load_engine(make_engine(choice["backend"], choice["model"], choice.get("gpu")))
+            eng = make_engine(choice["backend"], choice["model"], choice.get("gpu"))
+            t2 = time.monotonic()
+            server.load_engine(eng)
+            log.info("startup times: choose engine %.1f s, create session %.1f s, warm-up %.1f s",
+                     t1 - t0, t2 - t1, time.monotonic() - t2)
             if choice["backend"] == "cpu" and not a.backend:
                 note = "No GPU engine could start on this PC, so it runs on the CPU with the small model (playable, but slower)."
             elif choice["backend"] == "dml" and note is None:
