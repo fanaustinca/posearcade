@@ -37,15 +37,15 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   await p.screenshot({ path: `${OUT}/e2e-menu.png` });
 
   for (const [kind, diff, song, wait] of [['saber', 'Normal', 'ode', 7000], ['wall', 0, 0, 7000], ['mole', 0, 0, 6000],
-    ['shooter', 0, 0, 8000], ['tennis', 'Novice', 0, 8000], ['viewer', 0, 0, 3000]]) {
+    ['shooter', 'Easy', 0, 8000], ['shooter', 'Easy', { players: 2 }, 8000], ['tennis', 'Novice', 0, 8000], ['viewer', 0, 0, 3000]]) {
     const before = errors.length;
     await p.evaluate((k, d, s) => d ? pa.launch(k, d, s) : pa.launch(k), kind, diff, song);
     await sleep(2500);
     const alive = await p.evaluate(() => !!pa.game);  // (a still photo can lose a level later on)
     if (!alive) fail(kind + ': game not running');
     await sleep(wait - 2500);
-    await p.screenshot({ path: `${OUT}/e2e-${kind}.png` });
-    console.log(errors.length === before && alive ? 'PASS' : 'FAIL', kind);
+    await p.screenshot({ path: `${OUT}/e2e-${kind}${song?.players ? '-1v1' : ''}.png` });
+    console.log(errors.length === before && alive ? 'PASS' : 'FAIL', kind + (song?.players ? ' 1v1' : ''));
   }
   await b.close();
   console.log(errors.length ? `E2E FAILED (${errors.length})` : 'E2E PASSED');

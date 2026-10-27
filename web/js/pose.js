@@ -138,8 +138,11 @@ export class PoseClient {
 }
 
 // Smoothed single-player body state with prediction to cover network latency.
+// `pick` chooses which detected person this body follows (default: the
+// biggest, i.e. the player nearest the camera). See Body.side() for 2-player.
 export class Body {
-  constructor(client) {
+  constructor(client, pick = (people) => people[0]) {
+    this.pick = pick;
     this.client = client;
     this.fx = KP_FILTERS(); this.fy = KP_FILTERS();
     this.pts = Array.from({ length: 17 }, () => ({ x: 0.5, y: 0.5, vx: 0, vy: 0, c: 0, seen: -1e9 }));
@@ -151,12 +154,29 @@ export class Body {
     this.center = null; this.scale = null; // body frame, in screen units (x scaled by aspect)
     this.frameLocked = false;
     this.predict = 0.6; // fraction of measured latency to extrapolate (0 = off)
-    client.onPose((m) => this._update(m));
+    this.off = client.onPose((m) => this._update(m));
+  }
+
+  dispose() { this.off(); }
+
+  // For two players side by side: of the two biggest people in view, follow
+  // the one on the left (or right) of the mirrored image.
+  static side(which) {
+    return (people) => {
+      const two = people.slice(0, 2);
+      if (two.length < 2) {
+        const p = two[0]; if (!p) return null;
+        const cx = 1 - (p.box[0] + p.box[2]) / 2;
+        return (which === 'left') === (cx < 0.5) ? p : null;
+      }
+      two.sort((a, b) => (b.box[0] + b.box[2]) - (a.box[0] + a.box[2])); // mirrored: biggest raw x is leftmost
+      return which === 'left' ? two[0] : two[1];
+    };
   }
 
   _update(msg) {
     const t = msg.t / 1000; // capture time, seconds
-    const p = msg.people[0];
+    const p = this.pick(msg.people);
     if (!p) { this.present = performance.now() - this.lastSeen < 400 && this.present; return; }
     this.lastSeen = performance.now(); this.present = true; this.lastT = t;
     for (let i = 0; i < 17; i++) {

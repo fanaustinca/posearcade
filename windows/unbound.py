@@ -41,7 +41,7 @@ DATA = Path(os.environ.get("LOCALAPPDATA", Path.home() / ".local" / "share")) / 
 VERSION = (APP / "VERSION").read_text().strip() if (APP / "VERSION").exists() else "dev"
 PORT = 8600
 BIG, SMALL = "yolo11l-pose.onnx", "yolo11s-pose.onnx"
-SLOW_MS = 45  # if the big model is slower than this per frame, use the small one
+SLOW_MS = 25  # if the big model is slower than this per frame (weak or integrated GPU), use the small one
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 log = logging.getLogger("unbound")
 
