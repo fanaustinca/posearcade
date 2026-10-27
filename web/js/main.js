@@ -5,7 +5,7 @@ import { SaberGame, SABER_DIFFS } from './games/saber.js';
 import { ViewerGame } from './games/viewer.js';
 import { WallGame } from './games/wall.js';
 import { MoleGame } from './games/mole.js';
-import { ShooterGame } from './games/shooter.js';
+import { ShooterGame, ShooterDuel, SG_DIFFS } from './games/shooter.js';
 import { TennisGame, TENNIS_DIFFS } from './games/tennis.js';
 import { SONGS } from './songs.js';
 
@@ -53,18 +53,30 @@ const dwell = new Map(); // element -> ms hovered
 const DWELL_MS = 1100;
 // Cursor follows the hand tracker's palm position (falls back to the wrist
 // estimate), so it works even when the forearm is hidden behind the hand.
+// Over the camera image it sits exactly on your hand; on the plain menus it
+// is scaled around your body so every button is in easy reach.
 function handCursor(side) {
+  if (game && bgvideo.style.opacity === '1') {
+    const s = body.handScreen(side);
+    return s.ok ? videoToWindow(s.x, s.y) : null;
+  }
   const h = body.handBody(side);
   if (!h.ok) return null;
   return { x: innerWidth / 2 + h.x * innerWidth / 5.2, y: innerHeight / 2 - (h.y - 0.15) * innerHeight / 3.6 };
 }
 function updateMenuHands(dt) {
-  const viewer = game && !paused && game.noAutoPause; // Joint Viewer: only the Exit button
-  const menuOn = !game || paused || screen === 'scrResult' || viewer;
-  const targets = viewer ? [$('#btnExit')] : menuOn ? [...document.querySelectorAll('.screen.on .card, .screen.on .btn')] : [];
+  const inGame = game && !paused; // only the Exit / Pause button, and only shown near it
+  const menuOn = !game || paused || screen === 'scrResult';
+  const exitBtn = $('#btnExit');
+  const targets = inGame ? [exitBtn] : menuOn ? [...document.querySelectorAll('.screen.on .card, .screen.on .btn')] : [];
+  const need = inGame && !game.noAutoPause ? DWELL_MS * 1.4 : DWELL_MS;
   const hovered = new Set();
   for (const k of ['L', 'R']) {
-    const c = menuOn && body.present && screen !== 'scrStart' ? handCursor(k) : null;
+    let c = (menuOn || inGame) && body.present && screen !== 'scrStart' ? handCursor(k) : null;
+    if (c && inGame && !game.noAutoPause) { // in a game: cursor only appears near the Pause button
+      const r = exitBtn.getBoundingClientRect(), m = 120;
+      if (c.x < r.left - m || c.x > r.right + m || c.y < r.top - m || c.y > r.bottom + m) c = null;
+    }
     const cur = cursors[k];
     if (!c) { cur.style.display = 'none'; continue; }
     cur.style.display = 'block'; cur.style.left = c.x + 'px'; cur.style.top = c.y + 'px';
@@ -78,8 +90,8 @@ function updateMenuHands(dt) {
     if (hovered.has(t)) {
       const v = (dwell.get(t) || 0) + dt * 1000;
       dwell.set(t, v); t.classList.add('hot');
-      if (fill) fill.style.width = Math.min(100, v / DWELL_MS * 100) + '%';
-      if (v >= DWELL_MS) { dwell.clear(); clearFills(); activate(t); return; }
+      if (fill) fill.style.width = Math.min(100, v / need * 100) + '%';
+      if (v >= need) { dwell.clear(); clearFills(); activate(t); return; }
     } else if (dwell.has(t)) { dwell.delete(t); t.classList.remove('hot'); if (fill) fill.style.width = '0'; }
   }
 }
@@ -87,6 +99,7 @@ function clearFills() { document.querySelectorAll('.fill').forEach(f => f.style.
 
 // ---------- menus ----------
 let chosenSong = SONGS[0], chosenDiff = 'Easy', chosenTennis = 'Novice', lastGame = null;
+const chosenSg = { players: 1, diff: 'Easy' };
 const songRow = $('#songRow'), diffRow = $('#diffRow');
 for (const s of [...SONGS].sort((a, b) => a.level - b.level)) {
   const b = document.createElement('div'); b.className = 'btn song'; b.dataset.song = s.id;
@@ -94,15 +107,28 @@ for (const s of [...SONGS].sort((a, b) => a.level - b.level)) {
   songRow.appendChild(b);
 }
 for (const d of Object.keys(SABER_DIFFS)) {
-  const b = document.createElement('div'); b.className = 'btn'; b.dataset.diff = d;
+  const b = document.createElement('div'); b.className = 'btn opt'; b.dataset.diff = d;
   b.innerHTML = `${d}<div class="fill"></div>`; diffRow.appendChild(b);
 }
 const tennisRow = $('#tennisRow');
 for (const d of Object.keys(TENNIS_DIFFS)) {
-  const b = document.createElement('div'); b.className = 'btn'; b.dataset.tdiff = d;
+  const b = document.createElement('div'); b.className = 'btn opt'; b.dataset.tdiff = d;
   b.innerHTML = `${d}<div class="fill"></div>`; tennisRow.appendChild(b);
 }
+for (const [n, label] of [[1, '👤 1 Player'], [2, '👥 2 Players · 1v1']]) {
+  const b = document.createElement('div'); b.className = 'btn'; b.dataset.sgplayers = n;
+  b.innerHTML = `${label}<div class="fill"></div>`; $('#sgModeRow').appendChild(b);
+}
+for (const d of Object.keys(SG_DIFFS)) {
+  const b = document.createElement('div'); b.className = 'btn opt'; b.dataset.sgdiff = d;
+  b.innerHTML = `${d}<div class="fill"></div>`; $('#sgDiffRow').appendChild(b);
+}
 function refreshSel() {
+  document.querySelectorAll('[data-sgplayers]').forEach(b => b.classList.toggle('sel', +b.dataset.sgplayers === chosenSg.players));
+  document.querySelectorAll('[data-sgdiff]').forEach(b => b.classList.toggle('sel', b.dataset.sgdiff === chosenSg.diff));
+  $('#sgHelp').innerHTML = chosenSg.players === 2
+    ? 'Split screen: player 1 stands on the <b style="color:var(--red)">left</b>, player 2 on the <b style="color:var(--blue)">right</b>, both facing the camera.<br>Same waves for both — last ship flying (or the higher score after 3 minutes) wins.'
+    : 'Hold your hands together to fire, move them to aim. Survive as many waves as you can.';
   tennisRow.querySelectorAll('.btn').forEach(b => b.classList.toggle('sel', b.dataset.tdiff === chosenTennis));
   songRow.querySelectorAll('.btn').forEach(b => b.classList.toggle('sel', b.dataset.song === chosenSong.id));
   diffRow.querySelectorAll('.btn').forEach(b => b.classList.toggle('sel', b.dataset.diff === chosenDiff));
@@ -113,6 +139,9 @@ function activate(el) {
   if (el.dataset.game === 'saber') { show('scrSongs'); return; }
   if (el.dataset.game === 'tennis') { show('scrTennis'); return; }
   if (el.dataset.tdiff) { chosenTennis = el.dataset.tdiff; refreshSel(); return; }
+  if (el.dataset.game === 'shooter') { show('scrShooter'); return; }
+  if (el.dataset.sgplayers) { chosenSg.players = +el.dataset.sgplayers; refreshSel(); return; }
+  if (el.dataset.sgdiff) { chosenSg.diff = el.dataset.sgdiff; refreshSel(); return; }
   if (el.dataset.game === 'viewer') { lastGame = { kind: 'viewer' }; endGame(); launch(); return; }
   if (el.dataset.game) { lastGame = { kind: el.dataset.game }; startCalib(); return; }
   if (el.dataset.song) { chosenSong = SONGS.find(s => s.id === el.dataset.song); refreshSel(); return; }
@@ -121,6 +150,8 @@ function activate(el) {
     case 'menu': endGame(); show('scrMenu'); break;
     case 'play': lastGame = { kind: 'saber', song: chosenSong, diff: chosenDiff }; startCalib(); break;
     case 'playTennis': lastGame = { kind: 'tennis', diff: chosenTennis }; startCalib(); break;
+    case 'playShooter': lastGame = { kind: 'shooter', diff: chosenSg.diff, players: chosenSg.players }; startCalib(); break;
+    case 'pause': pause('Paused. Hover Resume to keep playing, or press Esc.'); break;
     case 'retry': startCalib(); break;
     case 'resume': resume(); break;
     case 'quit': endGame(); show('scrMenu'); break;
@@ -178,8 +209,10 @@ function startCalib() {
     saber: 'Stand so your head, shoulders, and both arms are visible. Raise both hands above your shoulders to start.',
     wall: 'Stand in the middle of the frame with room to step left and right. Raise both hands above your shoulders to start.',
     mole: 'Moles pop up all over the camera view: move around to reach them. Raise both hands above your shoulders to start.',
-    shooter: 'Sit or stand facing the camera. Hands together = fire; move them to aim. Raise both hands above your shoulders to start.',
-    tennis: 'Stand facing the screen with room to swing your arms. Your player runs to the ball — you swing! Raise both hands above your shoulders to start.',
+    shooter: lastGame.players === 2
+      ? 'Player 1 on the left, player 2 on the right, both fully in view. Hands together = fire; move them to aim. One of you: raise both hands to start.'
+      : 'Sit or stand facing the camera. Hands together = fire; move them to aim. Raise both hands above your shoulders to start.',
+    tennis: 'Stand in the middle with room to step left and right and swing. Step sideways to get to the ball, then swing! Raise both hands above your shoulders to start.',
   }[lastGame.kind] || 'Raise both hands above your shoulders to start.';
 }
 function updateCalib(dt) {
@@ -201,18 +234,24 @@ function launch() {
   show('none');
   body.frameLocked = true;
   const opts = { ...lastGame };
-  const Game = { saber: SaberGame, wall: WallGame, mole: MoleGame, shooter: ShooterGame, tennis: TennisGame, viewer: ViewerGame }[lastGame.kind];
+  const Game = lastGame.kind === 'shooter' && lastGame.players === 2 ? ShooterDuel
+    : { saber: SaberGame, wall: WallGame, mole: MoleGame, shooter: ShooterGame, tennis: TennisGame, viewer: ViewerGame }[lastGame.kind];
   game = new Game(app, opts);
   hud.el.classList.toggle('on', lastGame.kind !== 'viewer');
   const k = lastGame.kind;
   glCanvas.style.display = k === 'saber' || k === 'wall' || k === 'shooter' || k === 'tennis' ? '' : 'none';
   overlay.style.display = k === 'saber' || k === 'wall' ? 'none' : '';
-  $('#btnExit').classList.toggle('on', lastGame.kind === 'viewer');
-  pose.setHands(k !== 'saber' && k !== 'tennis'); // these read the pose wrists only hud.score(0, 0, 1); hud.progress(0);
+  const ex = $('#btnExit'), isViewer = k === 'viewer';
+  ex.classList.add('on'); ex.classList.toggle('ingame', !isViewer);
+  ex.dataset.act = isViewer ? 'quit' : 'pause';
+  ex.firstChild.nodeValue = isViewer ? '✕ Exit' : '⏸ Pause';
+  pose.setHands(k !== 'saber' && k !== 'tennis'); // these read the pose wrists only
+  hud.score(0, 0, 1); hud.progress(0);
   paused = false; absentFor = 0;
   game.start();
 }
 function endGame() {
+  $('#btnExit').classList.remove('on');
   if (game) { game.dispose(); game = null; }
   if (audio.state === 'suspended') audio.resume();
   hud.el.classList.remove('on'); paused = false;
@@ -223,6 +262,7 @@ function endGame() {
 }
 function finishGame(res) {
   const g = game; game = null; g?.dispose();
+  $('#btnExit').classList.remove('on');
   pose.setHands(true);
   hud.el.classList.remove('on');
   octx.clearRect(0, 0, innerWidth, innerHeight); renderer.clear();
@@ -235,13 +275,18 @@ function finishGame(res) {
 function pause(why) {
   if (!game || paused) return;
   paused = true; audio.suspend(); $('#pauseWhy').textContent = why; show('scrPause');
+  $('#btnExit').classList.remove('on');
 }
 function resume() {
   if (!game) return;
   show('none'); paused = false; absentFor = 0; audio.resume();
+  $('#btnExit').classList.add('on');
 }
 addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { if (paused) resume(); else pause('Paused. Hover Resume or press Esc.'); }
+  if (e.key !== 'Escape') return;
+  if (game && game.noAutoPause) { endGame(); show('scrMenu'); }              // Joint Viewer: Esc leaves
+  else if (game) { if (paused) resume(); else pause('Paused. Hover Resume or press Esc.'); }
+  else if (['scrSongs', 'scrTennis', 'scrShooter', 'scrCalib', 'scrResult'].includes(screen)) { calib = null; show('scrMenu'); }
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause('Paused (tab hidden).'); });
 
@@ -293,5 +338,6 @@ function frame(now) {
 resize();
 requestAnimationFrame(frame);
 // Test hook: start a game without the hands-up calibration.
-window.pa.launch = (kind, diff = 'Normal', song = 'twinkle') => { lastGame = kind === 'saber' ? { kind, song: SONGS.find(s => s.id === song), diff } : { kind, diff }; endGame(); launch(); };
+// pa.launch('saber', 'Easy', 'twinkle') · pa.launch('shooter', 'Easy', { players: 2 })
+window.pa.launch = (kind, diff = 'Normal', song = 'twinkle') => { lastGame = kind === 'saber' ? { kind, song: SONGS.find(s => s.id === song), diff } : { kind, diff, ...(typeof song === 'object' ? song : {}) }; endGame(); launch(); };
 Object.defineProperty(window.pa, 'game', { get: () => game });

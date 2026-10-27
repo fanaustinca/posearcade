@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Unbound</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕺</text></svg>">
+<link rel="icon" href="./logo.svg" type="image/svg+xml">
 <style>
   :root {
     --bg: #07060f; --panel: rgba(18, 16, 36, 0.82); --line: rgba(255,255,255,0.12);
@@ -19,25 +19,31 @@
   #overlay { pointer-events: none; }
   .screen { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; }
   .screen.on { display: flex; }
+  #scrPause { background: rgba(7, 6, 15, .62); backdrop-filter: blur(3px); }
   h1 { font-size: clamp(42px, 8vw, 110px); font-weight: 900; letter-spacing: .04em; line-height: .95; text-align: center;
     background: linear-gradient(90deg, var(--red), #c45cff, var(--blue)); -webkit-background-clip: text; background-clip: text; color: transparent;
     filter: drop-shadow(0 0 30px rgba(160, 80, 255, .45)); }
   h2 { font-size: clamp(26px, 4vw, 52px); font-weight: 800; text-align: center; }
   .sub { color: var(--dim); font-size: clamp(14px, 1.6vw, 20px); text-align: center; max-width: 900px; line-height: 1.5; }
   .row { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
-  .card { position: relative; width: clamp(200px, 22vw, 300px); min-height: 170px; padding: 22px; border-radius: 18px; cursor: pointer;
+  .card { position: relative; width: clamp(220px, 24vw, 340px); min-height: 190px; padding: 24px; border-radius: 18px; cursor: pointer;
     background: var(--panel); border: 2px solid var(--line); overflow: hidden; transition: transform .15s, border-color .15s; backdrop-filter: blur(6px); }
   .card:hover, .card.hot { transform: translateY(-4px) scale(1.03); border-color: rgba(255,255,255,.55); }
-  .card .ic { font-size: 46px; }
-  .card .t { font-size: 24px; font-weight: 800; margin-top: 8px; }
-  .card .d { color: var(--dim); font-size: 14px; margin-top: 6px; line-height: 1.4; }
+  .card .ic { font-size: 52px; }
+  .card .t { font-size: 28px; font-weight: 800; margin-top: 8px; }
+  .card .d { color: var(--dim); font-size: 15px; margin-top: 6px; line-height: 1.4; }
   .card .fill { position: absolute; left: 0; bottom: 0; height: 6px; width: 0; background: linear-gradient(90deg, var(--red), var(--blue)); }
-  .btn { position: relative; padding: 16px 30px; border-radius: 14px; font-size: 20px; font-weight: 800; cursor: pointer; overflow: hidden;
-    background: var(--panel); color: var(--text); border: 2px solid var(--line); min-width: 170px; text-align: center; }
+  .btn { position: relative; padding: 26px 48px; border-radius: 20px; font-size: 32px; font-weight: 800; cursor: pointer; overflow: hidden;
+    background: var(--panel); color: var(--text); border: 3px solid var(--line); min-width: 260px; text-align: center; }
   .btn:hover, .btn.hot { border-color: rgba(255,255,255,.6); }
-  .btn .fill { position: absolute; left: 0; bottom: 0; height: 5px; width: 0; background: var(--gold); }
-  #songRow { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; width: min(1200px, 100%); }
-  .btn.song { padding: 10px 12px; font-size: 16px; min-width: 0; }
+  .btn .fill { position: absolute; left: 0; bottom: 0; height: 8px; width: 0; background: var(--gold); }
+  .btn.opt { padding: 18px 26px; font-size: 24px; min-width: 190px; }
+  #songRow { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; width: min(1400px, 100%); }
+  .btn.song { padding: 14px 14px; font-size: 21px; min-width: 0; }
+  .btn.song .kbd { font-size: 16px; }
+  #scrSongs { gap: 16px; }
+  .logo { display: inline-block; width: .9em; height: .9em; vertical-align: -0.08em; margin-right: .18em;
+    filter: drop-shadow(0 0 24px rgba(160, 80, 255, .5)); }
   .btn.sel { border-color: var(--gold); box-shadow: 0 0 18px rgba(255, 209, 102, .35); }
   #status { position: fixed; top: 12px; left: 12px; display: flex; gap: 8px; z-index: 20; font-size: 13px; flex-wrap: wrap; }
   .pill { padding: 5px 10px; border-radius: 99px; background: rgba(0,0,0,.55); border: 1px solid var(--line); color: var(--dim); }
@@ -67,6 +73,7 @@
   .rank { font-size: clamp(70px, 12vw, 160px); font-weight: 900; color: var(--gold); text-shadow: 0 0 40px rgba(255,209,102,.5); }
   #btnExit { position: fixed; top: 70px; right: 24px; z-index: 25; display: none; font-size: 34px; padding: 26px 48px; min-width: 240px;
     background: rgba(255, 59, 92, .85); border-color: rgba(255,255,255,.7); }
+  #btnExit.ingame { top: auto; right: 250px; bottom: 12px; font-size: 26px; padding: 18px 30px; min-width: 0; background: rgba(18, 16, 36, .75); }
   #btnExit.on { display: block; }
   .beta { font-size: 12px; font-weight: 900; color: #07060f; background: var(--gold); border-radius: 6px; padding: 2px 6px; vertical-align: middle; }
   .help { position: fixed; bottom: 14px; left: 14px; color: var(--dim); font-size: 13px; z-index: 20; max-width: 50vw; }
@@ -90,23 +97,23 @@
 
 <!-- start: needs a user gesture for camera + audio -->
 <section class="screen on" id="scrStart">
-  <h1>UNBOUND</h1>
+  <h1><img class="logo" src="./logo.svg" alt="">UNBOUND</h1>
   <p class="sub">Your camera streams to the DGX Spark, which tracks your joints on the GPU.<br>Stand back so your upper body and both arms fit in the frame.</p>
   <div class="row">
     <select id="camSel"><option value="">Default camera</option></select>
   </div>
-  <div class="btn" id="btnStart" style="font-size:26px;padding:20px 50px">▶ Start camera</div>
+  <div class="btn" id="btnStart" style="font-size:38px;padding:30px 64px">▶ Start camera</div>
   <p class="kbd" id="startErr"></p>
 </section>
 
 <section class="screen" id="scrMenu">
-  <h1 style="font-size:clamp(36px,6vw,80px)">UNBOUND</h1>
+  <h1 style="font-size:clamp(36px,6vw,80px)"><img class="logo" src="./logo.svg" alt="">UNBOUND</h1>
   <p class="sub">Hover a hand over a card to pick it, or click.</p>
   <div class="row">
     <div class="card" data-game="saber"><div class="ic">⚔️</div><div class="t">Beat Slicer</div><div class="d">Your forearms are lightsabers. Each block is a note: touch it as it arrives and you play the melody. Red = left, blue = right.</div><div class="fill"></div></div>
     <div class="card" data-game="wall"><div class="ic">🧱</div><div class="t">Hole in the Wall</div><div class="d">Walls fly at you with a body-shaped hole. Strike the pose, step sideways, or crouch to fit through.</div><div class="fill"></div></div>
     <div class="card" data-game="mole"><div class="ic">🔨</div><div class="t">Whack-a-Mole</div><div class="d">Moles pop up all around you. Bop them with your hands, grab the gold ones, dodge the bombs. 60 seconds.</div><div class="fill"></div></div>
-    <div class="card" data-game="shooter"><div class="ic">🚀</div><div class="t">Star Gunner <span class="beta">BETA</span></div><div class="d">Man the gun turret of a starship. Hold your hands together to fire, move them to aim. Blast asteroids, aliens and saucers.</div><div class="fill"></div></div>
+    <div class="card" data-game="shooter"><div class="ic">🚀</div><div class="t">Star Gunner <span class="beta">BETA</span></div><div class="d">Man the gun turret of a starship. Hold your hands together to fire, move them to aim. Solo, or 1v1 split screen with a friend.</div><div class="fill"></div></div>
     <div class="card" data-game="tennis"><div class="ic">🎾</div><div class="t">Tennis</div><div class="d">Centre court under the floodlights. Swing your arm to hit: swing speed is power, timing and direction aim the shot. Novice to Grandmaster.</div><div class="fill"></div></div>
     <div class="card" data-game="viewer"><div class="ic">🦴</div><div class="t">Joint Viewer</div><div class="d">Just your camera with the detected joints drawn over it, plus latency and confidence.</div><div class="fill"></div></div>
   </div>
@@ -123,8 +130,16 @@
 <section class="screen" id="scrTennis">
   <h2>Tennis</h2>
   <div class="row" id="tennisRow"></div>
-  <p class="sub">Swing fast for power · swing across your body to aim · early = cross-court, late = down the line · swing upward to lob.<br>Novice shows where the ball lands and forgives everything; Grandmaster forgives nothing.</p>
+  <p class="sub">Step left and right for real to get to the ball · swing fast for power · a perfectly timed swing goes for the open court · swing across your body to aim · swing upward to lob.<br>Novice shows where the ball lands and forgives everything; Grandmaster forgives nothing.</p>
   <div class="row"><div class="btn" data-act="menu">◀ Back</div><div class="btn" data-act="playTennis" style="border-color:var(--gold)">▶ Play</div></div>
+</section>
+
+<section class="screen" id="scrShooter">
+  <h2>Star Gunner</h2>
+  <div class="row" id="sgModeRow"></div>
+  <div class="row" id="sgDiffRow"></div>
+  <p class="sub" id="sgHelp"></p>
+  <div class="row"><div class="btn" data-act="menu">◀ Back</div><div class="btn" data-act="playShooter" style="border-color:var(--gold)">▶ Play</div></div>
 </section>
 
 <section class="screen" id="scrCalib">
@@ -143,7 +158,7 @@
 <section class="screen" id="scrPause">
   <h2>Paused</h2>
   <p class="sub" id="pauseWhy">Step back into view to keep playing.</p>
-  <div class="row"><div class="btn" data-act="resume">▶ Resume</div><div class="btn" data-act="quit">☰ Quit</div></div>
+  <div class="row"><div class="btn" data-act="resume">▶ Resume</div><div class="btn" data-act="retry">↻ Restart</div><div class="btn" data-act="quit">☰ Quit to menu</div></div>
 </section>
 
 <div id="hud">
@@ -155,7 +170,7 @@
 <div id="msg"></div>
 <div class="btn" id="btnExit" data-act="quit">✕ Exit<div class="fill"></div></div>
 <div class="cursor" id="curL"></div><div class="cursor" id="curR"></div>
-<div class="help">Esc = pause · walk out of frame to auto-pause</div>
+<div class="help">Esc = pause / back · walk out of frame to auto-pause</div>
 
 <script type="importmap">{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }</script>
 <script type="module" src="./js/main.js"></script>

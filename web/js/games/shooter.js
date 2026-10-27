@@ -4,13 +4,23 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ctx as audio, sfx, sfxBus } from '../audio.js';
+import { Body } from '../pose.js';
 
 // Star Gunner: you sit in a ship's gun seat. Hands held together are the gun;
 // where they are relative to your chest sets yaw/pitch. Hands together = fire.
 const YAW_MAX = 50, PITCH_MAX = 32, GAIN = 42; // degrees; GAIN = degrees per shoulder-width of hand travel
-const TOGETHER = 0.8;                            // hands closer than this (shoulder widths) count as joined
-const FIRE_EVERY = 0.11, BOLT_SPEED = 650, ASSIST = 1.6; // seconds, units/s, degrees of aim forgiveness
+const FIRE_EVERY = 0.11, BOLT_SPEED = 650;      // seconds, units/s
 const D2R = Math.PI / 180;
+
+// together = hands closer than this (shoulder widths) count as joined; assist =
+// degrees of aim forgiveness; speed/plasma scale enemy speeds; dmg scales hull
+// damage; spawn scales the gap between spawns; count scales enemies per wave;
+// regen = hull back after each wave.
+export const SG_DIFFS = {
+  Easy:   { together: 1.2, assist: 5.0, speed: 0.55, plasma: 0.55, dmg: 0.45, spawn: 1.5, count: 0.7, regen: 30 },
+  Normal: { together: 1.0, assist: 3.2, speed: 0.75, plasma: 0.75, dmg: 0.7,  spawn: 1.2, count: 0.85, regen: 20 },
+  Hard:   { together: 0.8, assist: 1.6, speed: 1.0,  plasma: 1.0,  dmg: 1.0,  spawn: 1.0, count: 1.0, regen: 10 },
+};
 
 function rng(seed) { let s = seed >>> 0 || 1; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -103,8 +113,16 @@ function makeRockGeo(seed) {
 }
 
 export class ShooterGame {
-  constructor(app) {
+  // opts: diff, and for split screen: duel, body, view = [x0, x1] (fractions of the window), seed, label, color
+  constructor(app, opts = {}) {
     this.app = app;
+    this.D = SG_DIFFS[opts.diff] || SG_DIFFS.Easy;
+    this.body = opts.body || app.body;
+    this.view = opts.view || [0, 1];
+    this.duel = !!opts.duel; this.label = opts.label; this.color = opts.color || '#9ff7ff';
+    const R = rng(opts.seed || (Math.random() * 1e9)); // enemy spawns: same seed = same waves for both players
+    this.rr = (a, b) => a + R() * (b - a); this.R = R;
+    this.hudState = { score: 0, hull: 1, toast: null };
     this.enemies = []; this.bolts = []; this.plasma = []; this.fx = []; this.debris = [];
     this.score = 0; this.hull = 100; this.wave = 0; this.queue = []; this.spawnT = 0; this.waveGap = 2.5;
     this.shots = 0; this.hitsLanded = 0; this.kills = { rock: 0, alien: 0, ship: 0, plasma: 0 };
@@ -114,12 +132,23 @@ export class ShooterGame {
     this.build();
   }
 
+  vx() { return Math.round(innerWidth * this.view[0]); }
+  vw() { return Math.round(innerWidth * (this.view[1] - this.view[0])); }
+
+  // HUD: the shared DOM HUD for one player, drawn into our half for split screen
+  hudScore() { if (this.duel) this.hudState.score = this.score; else this.app.hud.score(this.score, 0, 1); }
+  hudHull() { if (this.duel) this.hudState.hull = this.hull / 100; else this.app.hud.energy(this.hull / 100); }
+  toast(text, color, ms) {
+    if (this.duel) this.hudState.toast = { text, color, until: this.time + ms / 1000 };
+    else this.app.hud.toast(text, color, ms);
+  }
+
   build() {
     const r = this.app.renderer;
     this.prevTone = r.toneMapping; this.prevExposure = r.toneMappingExposure;
     r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.05;
     const scene = this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 2000);
+    this.camera = new THREE.PerspectiveCamera(70, this.vw() / innerHeight, 0.05, 2000);
     scene.add(this.camera);
     this.sunDir = new THREE.Vector3(0.55, 0.35, -0.75).normalize();
     this.sky = makeSky(); scene.add(this.sky);
@@ -152,7 +181,7 @@ export class ShooterGame {
 
     this.composer = new EffectComposer(r);
     this.composer.addPass(new RenderPass(scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.85, 0.45, 0.25);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(this.vw(), innerHeight), 0.85, 0.45, 0.25);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
   }
@@ -263,7 +292,7 @@ export class ShooterGame {
 
   // ---------- enemies ----------
   spawnPoint(minD, maxD, coneYaw = 40, conePitch = 22) {
-    const yaw = rand(-coneYaw, coneYaw) * D2R, pitch = rand(-conePitch, conePitch) * D2R, d = rand(minD, maxD);
+    const rand = this.rr, yaw = rand(-coneYaw, coneYaw) * D2R, pitch = rand(-conePitch, conePitch) * D2R, d = rand(minD, maxD);
     return new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch) * d, Math.sin(pitch) * d, -Math.cos(yaw) * Math.cos(pitch) * d);
   }
 
@@ -271,9 +300,9 @@ export class ShooterGame {
     const m = new THREE.Mesh(this.rockGeos[Math.floor(Math.random() * 6)], this.rockMats[Math.floor(Math.random() * 4)]);
     m.scale.setScalar(size); m.position.copy(pos); m.rotation.set(rand(0, 6), rand(0, 6), rand(0, 6));
     this.scene.add(m);
-    const target = new THREE.Vector3(rand(-10, 10), rand(-7, 7), 0);
+    const rr = this.rr, target = new THREE.Vector3(rr(-10, 10), rr(-7, 7), 0);
     this.enemies.push({ type: 'rock', obj: m, r: size * 1.05, hp: Math.ceil(size * 0.9), maxHp: Math.ceil(size * 0.9),
-      vel: vel || target.sub(pos).normalize().multiplyScalar(rand(11, 17) + this.wave * 0.8), spin: new THREE.Vector3(rand(-1, 1), rand(-1, 1), rand(-1, 1)), size });
+      vel: vel || target.sub(pos).normalize().multiplyScalar((rr(11, 17) + this.wave * 0.8) * this.D.speed), spin: new THREE.Vector3(rand(-1, 1), rand(-1, 1), rand(-1, 1)), size });
   }
 
   addAlien() {
@@ -290,7 +319,8 @@ export class ShooterGame {
       const a = k / 6 * Math.PI * 2; s.position.set(Math.cos(a) * 1.15, Math.sin(a) * 1.15, -0.2); s.rotation.z = a - Math.PI / 2; g.add(s);
     }
     g.scale.setScalar(1.5); g.position.copy(this.spawnPoint(95, 115)); this.scene.add(g);
-    this.enemies.push({ type: 'alien', obj: g, r: 2.4, hp: 2, maxHp: 2, phase: rand(0, 6), speed: rand(16, 22) + this.wave * 0.8, wob: rand(5, 9) });
+    const rr = this.rr;
+    this.enemies.push({ type: 'alien', obj: g, r: 2.4, hp: 2, maxHp: 2, phase: rr(0, 6), speed: (rr(16, 22) + this.wave * 0.8) * this.D.speed, wob: rr(5, 9) });
   }
 
   addShip() {
@@ -310,7 +340,8 @@ export class ShooterGame {
     }
     g.scale.setScalar(1.6); g.position.copy(this.spawnPoint(200, 230, 35, 15)); this.scene.add(g);
     const station = this.spawnPoint(45, 65, 28, 14);
-    this.enemies.push({ type: 'ship', obj: g, r: 5.4, hp: 10, maxHp: 10, station, lights, phase: rand(0, 6), shootT: rand(2, 3.5), arrived: false });
+    const hp = Math.round(10 * Math.max(0.6, this.D.speed));
+    this.enemies.push({ type: 'ship', obj: g, r: 5.4, hp, maxHp: hp, station, lights, phase: this.rr(0, 6), shootT: this.rr(2, 3.5) / this.D.plasma, arrived: false });
   }
 
   firePlasma(from) {
@@ -318,29 +349,29 @@ export class ShooterGame {
     const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glow, color: 0x40ff70, blending: THREE.AdditiveBlending, depthWrite: false }));
     halo.scale.setScalar(5); m.add(halo);
     m.position.copy(from); this.scene.add(m);
-    const target = new THREE.Vector3(rand(-1.5, 1.5), rand(-1, 1), 0);
-    this.enemies.push({ type: 'plasma', obj: m, r: 1.3, hp: 1, maxHp: 1, vel: target.sub(from).normalize().multiplyScalar(32 + this.wave * 2) });
+    const target = new THREE.Vector3(this.rr(-1.5, 1.5), this.rr(-1, 1), 0);
+    this.enemies.push({ type: 'plasma', obj: m, r: 1.3, hp: 1, maxHp: 1, vel: target.sub(from).normalize().multiplyScalar((32 + this.wave * 2) * this.D.plasma) });
   }
 
   startWave() {
     this.wave++;
-    const n = this.wave, q = [];
-    for (let i = 0; i < 5 + n * 2; i++) q.push('rock');
-    for (let i = 0; i < (n >= 2 ? (n - 1) * 2 : 0); i++) q.push('alien');
+    const n = this.wave, q = [], c = this.D.count;
+    for (let i = 0; i < Math.round((5 + n * 2) * c); i++) q.push('rock');
+    for (let i = 0; i < Math.round((n >= 2 ? (n - 1) * 2 : 0) * c); i++) q.push('alien');
     for (let i = 0; i < (n >= 3 ? Math.floor((n - 1) / 2) : 0); i++) q.push('ship');
-    this.queue = q.sort(() => Math.random() - 0.5);
-    this.spawnEvery = Math.max(0.55, 2.0 - n * 0.15);
+    for (let i = q.length - 1; i > 0; i--) { const j = Math.floor(this.R() * (i + 1)); [q[i], q[j]] = [q[j], q[i]]; }
+    this.queue = q;
+    this.spawnEvery = Math.max(0.55, 2.0 - n * 0.15) * this.D.spawn;
     this.spawnT = 0.5;
-    this.app.hud.toast(`WAVE ${n}`, '#9ff7ff', 1400);
+    this.toast(`WAVE ${n}`, '#9ff7ff', 1400);
     sfx.chord(60 + n);
   }
 
   // ---------- frame ----------
   start() {
     this.resize();
-    this.app.hud.energy(1);
-    this.app.hud.score(0, 0, 1);
-    this.app.hud.toast('STAR GUNNER', '#9ff7ff', 1500);
+    this.hudHull(); this.hudScore();
+    this.toast('STAR GUNNER', '#9ff7ff', 1500);
     // engine drone
     const t = audio.currentTime;
     this.drone = [];
@@ -352,16 +383,16 @@ export class ShooterGame {
   }
 
   resize() {
-    this.camera.aspect = innerWidth / innerHeight; this.camera.updateProjectionMatrix();
-    this.composer.setSize(innerWidth, innerHeight);
-    this.bloom.setSize(innerWidth, innerHeight);
+    this.camera.aspect = this.vw() / innerHeight; this.camera.updateProjectionMatrix();
+    this.composer.setSize(this.vw(), innerHeight);
+    this.bloom.setSize(this.vw(), innerHeight);
     this.layoutCockpit();
   }
 
   aimInput(dt) {
-    const b = this.app.body, L = b.handBody('L'), R = b.handBody('R');
-    const both = L.ok && R.ok;
-    const together = both && Math.hypot(L.x - R.x, L.y - R.y) < TOGETHER;
+    const b = this.body, L = b.handBody('L'), R = b.handBody('R');
+    const both = L.ok && R.ok && b.present;
+    const together = both && Math.hypot(L.x - R.x, L.y - R.y) < this.D.together;
     if (both) {
       const mx = (L.x + R.x) / 2, my = (L.y + R.y) / 2;
       // first seconds: wherever joined hands rest becomes "straight ahead"
@@ -389,7 +420,7 @@ export class ShooterGame {
       const c = e.obj.position, t = c.dot(dir);
       if (t <= 0) continue;
       const miss = c.clone().sub(dir.clone().multiplyScalar(t)).length();
-      if (miss < e.r + t * Math.tan(ASSIST * D2R) && t < bestT) { best = e; bestT = t; }
+      if (miss < e.r + t * Math.tan(this.D.assist * D2R) && t < bestT) { best = e; bestT = t; }
     }
     return best ? { e: best, t: bestT } : null;
   }
@@ -415,7 +446,7 @@ export class ShooterGame {
     e.dead = true; this.scene.remove(e.obj);
     const pts = { rock: 100, alien: 150, ship: 500, plasma: 25 }[e.type];
     this.score += pts * Math.max(1, this.wave); this.kills[e.type]++;
-    this.app.hud.score(this.score, 0, 1);
+    this.hudScore();
     this.explode(e.obj.position.clone(), e.type === 'ship' ? 2.2 : e.type === 'rock' ? Math.min(2, e.size / 2.5) : e.type === 'plasma' ? 0.4 : 0.9, e.type === 'rock' ? 'rock' : e.type === 'plasma' ? 'plasma' : 'alien');
     if (e.type === 'rock' && e.size > 4) {
       for (let k = 0; k < 3; k++) {
@@ -426,8 +457,8 @@ export class ShooterGame {
   }
 
   hurt(n, e) {
-    this.hull = Math.max(0, this.hull - n); this.damageFlash = 1; this.shake = Math.min(1.4, this.shake + 0.7);
-    this.app.hud.energy(this.hull / 100);
+    this.hull = Math.max(0, this.hull - Math.round(n * this.D.dmg)); this.damageFlash = 1; this.shake = Math.min(1.4, this.shake + 0.7);
+    this.hudHull();
     sfx.boom(); sfx.alarm();
     if (e) { e.dead = true; this.scene.remove(e.obj); }
   }
@@ -444,16 +475,16 @@ export class ShooterGame {
       this.spawnT -= dt;
       if (this.queue.length && this.spawnT <= 0) {
         const k = this.queue.pop();
-        if (k === 'rock') this.addRock(this.spawnPoint(100, 130), rand(2.2, 6.5));
+        if (k === 'rock') this.addRock(this.spawnPoint(100, 130), this.rr(2.2, 6.5));
         else if (k === 'alien') this.addAlien(); else this.addShip();
-        this.spawnT = this.spawnEvery * rand(0.6, 1.3);
+        this.spawnT = this.spawnEvery * this.rr(0.6, 1.3);
       }
       if (!this.queue.length && !this.enemies.some(e => !e.dead && e.type !== 'plasma')) {
         this.waveGap -= dt;
         if (this.waveGap <= 0) {
-          this.hull = Math.min(100, this.hull + 10); this.app.hud.energy(this.hull / 100);
+          this.hull = Math.min(100, this.hull + this.D.regen); this.hudHull();
           this.waveGap = 3; this.startWave();
-        } else if (this.waveGap > 2.9 && this.wave > 0 && !this.clearedShown) { this.clearedShown = true; this.app.hud.toast(`WAVE ${this.wave} CLEARED  +10 HULL`, '#3ee08f', 1500); }
+        } else if (this.waveGap > 2.9 && this.wave > 0 && !this.clearedShown) { this.clearedShown = true; this.toast(`WAVE ${this.wave} CLEARED  +${this.D.regen} HULL`, '#3ee08f', 1500); }
       } else this.clearedShown = false;
     }
 
@@ -500,7 +531,7 @@ export class ShooterGame {
           o.position.x = e.station.x + Math.sin(t * 0.6 + e.phase) * 14;
           o.position.y = e.station.y + Math.sin(t * 0.9 + e.phase) * 5;
           e.shootT -= dt;
-          if (e.shootT <= 0) { this.firePlasma(o.position.clone()); e.shootT = rand(2.2, 3.6) - Math.min(1, this.wave * 0.08); }
+          if (e.shootT <= 0) { this.firePlasma(o.position.clone()); e.shootT = (this.rr(2.2, 3.6) - Math.min(1, this.wave * 0.08)) / this.D.plasma; }
         }
         o.rotation.y += dt * 1.2; o.rotation.z = Math.sin(t * 0.6 + e.phase) * 0.25;
         e.lights.forEach((l, i) => l.material.color.setScalar(((Math.floor(t * 8) + i) % 4 === 0) ? 3 : 0.4));
@@ -555,13 +586,23 @@ export class ShooterGame {
   }
 
   render() {
-    this.composer.render();
+    if (this.duel) {
+      const r = this.app.renderer, x = this.vx(), w = this.vw();
+      r.setViewport(x, 0, w, innerHeight); r.setScissor(x, 0, w, innerHeight); r.setScissorTest(true);
+      this.composer.render();
+      r.setScissorTest(false); r.setViewport(0, 0, innerWidth, innerHeight);
+    } else this.composer.render();
+    const g = this.app.octx;
+    g.save();
+    if (this.duel) { g.beginPath(); g.rect(this.vx(), 0, this.vw(), innerHeight); g.clip(); g.translate(this.vx(), 0); }
     this.drawHud();
+    g.restore();
   }
 
   drawHud() {
-    const g = this.app.octx, W = innerWidth, H = innerHeight;
+    const g = this.app.octx, W = this.vw(), H = innerHeight;
     g.clearRect(0, 0, W, H);
+    if (this.duel) this.drawDuelHud(g, W, H);
     // reticle where the aim ray meets the screen
     const p = this.aimDir().multiplyScalar(100).project(this.camera);
     const x = (p.x * 0.5 + 0.5) * W, y = (-p.y * 0.5 + 0.5) * H;
@@ -587,7 +628,7 @@ export class ShooterGame {
     }
     // wave + prompts
     g.font = '800 20px system-ui'; g.textAlign = 'left'; g.fillStyle = '#9ff7ff'; g.shadowColor = '#000'; g.shadowBlur = 6;
-    g.fillText(`WAVE ${Math.max(1, this.wave)}`, 24, 110);
+    if (!this.duel) g.fillText(`WAVE ${Math.max(1, this.wave)}`, 24, 110);
     g.textAlign = 'center';
     if (this.calib > 0) {
       g.font = '800 28px system-ui'; g.fillStyle = '#fff';
@@ -606,8 +647,38 @@ export class ShooterGame {
     }
   }
 
+  // Split screen: each half carries its own score, hull bar and wave toasts.
+  drawDuelHud(g, W, H) {
+    const hs = this.hudState;
+    g.save();
+    g.shadowColor = '#000'; g.shadowBlur = 8; g.textBaseline = 'alphabetic';
+    g.font = '900 34px system-ui'; g.fillStyle = this.color; g.textAlign = 'left';
+    g.fillText(this.label, 24, H - 60);
+    g.font = '900 44px system-ui'; g.fillStyle = '#fff'; g.textAlign = 'right';
+    g.fillText(Math.round(hs.score).toLocaleString(), W - 24, 110);
+    g.font = '800 20px system-ui'; g.fillStyle = '#9ff7ff'; g.fillText(`WAVE ${Math.max(1, this.wave)}`, W - 24, 138);
+    g.shadowBlur = 0;
+    const bw = Math.min(360, W * 0.6), bx = (W - bw) / 2, by = 96;
+    g.fillStyle = 'rgba(255,255,255,.15)'; g.fillRect(bx, by, bw, 14);
+    const gr = g.createLinearGradient(bx, 0, bx + bw, 0);
+    gr.addColorStop(0, '#ff3b5c'); gr.addColorStop(0.5, '#ffd166'); gr.addColorStop(1, '#3ee08f');
+    g.fillStyle = gr; g.fillRect(bx, by, bw * hs.hull, 14);
+    g.strokeStyle = 'rgba(255,255,255,.4)'; g.lineWidth = 1; g.strokeRect(bx, by, bw, 14);
+    if (hs.toast && this.time < hs.toast.until) {
+      g.font = '900 48px system-ui'; g.textAlign = 'center'; g.fillStyle = hs.toast.color; g.shadowColor = '#000'; g.shadowBlur = 20;
+      g.fillText(hs.toast.text, W / 2, H * 0.38);
+    }
+    if (this.ended) {
+      g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, 0, W, H);
+      g.font = '900 56px system-ui'; g.textAlign = 'center'; g.fillStyle = '#ff6b8b'; g.shadowBlur = 20;
+      g.fillText('SHIP DESTROYED', W / 2, H / 2);
+    }
+    g.restore();
+  }
+
   end() {
     if (this.ended) return; this.ended = true;
+    if (this.duel) return; // the duel decides the winner
     const acc = this.shots ? this.hitsLanded / this.shots : 0;
     const rank = this.wave >= 8 ? 'S' : this.wave >= 6 ? 'A' : this.wave >= 4 ? 'B' : this.wave >= 2 ? 'C' : 'D';
     this.app.finish({
@@ -620,6 +691,7 @@ export class ShooterGame {
   }
 
   dispose() {
+    this.composer.renderTarget1?.dispose(); this.composer.renderTarget2?.dispose();
     const t = audio.currentTime;
     if (this.droneGain) { this.droneGain.gain.cancelScheduledValues(t); this.droneGain.gain.setValueAtTime(this.droneGain.gain.value, t); this.droneGain.gain.linearRampToValueAtTime(0, t + 0.3); }
     for (const o of this.drone || []) o.stop(t + 0.35);
@@ -630,5 +702,76 @@ export class ShooterGame {
     r.toneMapping = this.prevTone; r.toneMappingExposure = this.prevExposure;
     r.setClearColor(0x000000, 0); r.clear();
     this.app.octx.clearRect(0, 0, innerWidth, innerHeight);
+  }
+}
+
+// 1v1 split screen: two gunners, one per half, fed by the two players in view
+// (player 1 on the left of the mirror). Same seed, so both face the same waves.
+// Last ship flying wins; if both survive TIME_LIMIT, the higher score wins.
+const TIME_LIMIT = 180;
+export class ShooterDuel {
+  constructor(app, opts = {}) {
+    this.app = app;
+    const seed = Math.floor(Math.random() * 1e9);
+    this.bodies = [new Body(app.pose, Body.side('left')), new Body(app.pose, Body.side('right'))];
+    this.bodies.forEach(b => { b.frameLocked = true; });
+    this.games = [
+      new ShooterGame(app, { ...opts, duel: true, body: this.bodies[0], view: [0, 0.5], seed, label: 'P1', color: '#ff6b8b' }),
+      new ShooterGame(app, { ...opts, duel: true, body: this.bodies[1], view: [0.5, 1], seed, label: 'P2', color: '#6bc4ff' }),
+    ];
+    this.time = 0;
+  }
+  start() {
+    this.app.hud.el.classList.remove('on');
+    this.games.forEach(g => g.start());
+  }
+  resize() { this.games.forEach(g => g.resize()); }
+  update(dt, now) {
+    this.time += dt;
+    for (const g of this.games) if (!g.ended) g.update(dt, now);
+    if (this.over) { this.overT -= dt; if (this.overT <= 0) this.finish(); return; }
+    const [a, b] = this.games;
+    if (a.ended || b.ended || this.time >= TIME_LIMIT) {
+      this.over = true; this.overT = a.ended && b.ended ? 0.5 : 2.5;
+      this.winner = a.ended && !b.ended ? 1 : b.ended && !a.ended ? 0 : a.score === b.score ? -1 : a.score > b.score ? 0 : 1;
+      this.why = a.ended || b.ended ? 'last ship flying' : 'higher score';
+    }
+  }
+  render() {
+    const g = this.app.octx;
+    g.clearRect(0, 0, innerWidth, innerHeight);
+    this.games.forEach(x => x.render());
+    g.save();
+    g.fillStyle = 'rgba(255,255,255,.85)'; g.fillRect(innerWidth / 2 - 2, 0, 4, innerHeight);
+    const left = Math.max(0, TIME_LIMIT - this.time), m = Math.floor(left / 60), s = Math.floor(left % 60);
+    g.font = '900 30px system-ui'; g.textAlign = 'center'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 10;
+    g.fillText(`${m}:${String(s).padStart(2, '0')}`, innerWidth / 2, 84);
+    this.bodies.forEach((b, i) => {
+      if (b.present) return;
+      g.font = '800 28px system-ui'; g.fillStyle = '#ffd166';
+      g.fillText(`P${i + 1}: step into view on the ${i ? 'right' : 'left'}`, innerWidth * (i ? 0.75 : 0.25), innerHeight * 0.6);
+    });
+    if (this.over && this.winner != null) {
+      g.font = '900 64px system-ui'; g.fillStyle = this.winner < 0 ? '#fff' : this.games[this.winner].color; g.shadowBlur = 24;
+      g.fillText(this.winner < 0 ? 'DRAW!' : `P${this.winner + 1} WINS!`, innerWidth / 2, innerHeight * 0.3);
+    }
+    g.restore();
+  }
+  finish() {
+    if (this.done) return; this.done = true;
+    const [a, b] = this.games;
+    const acc = (x) => `${(x.shots ? x.hitsLanded / x.shots * 100 : 0).toFixed(0)}%`;
+    this.app.finish({
+      rank: this.winner < 0 ? '=' : `P${this.winner + 1}`, failed: false,
+      title: this.winner < 0 ? 'Draw!' : `Player ${this.winner + 1} wins — ${this.why}!`,
+      stats: {
+        'P1 score': a.score.toLocaleString(), 'P2 score': b.score.toLocaleString(),
+        'P1 wave': a.wave, 'P2 wave': b.wave, 'P1 accuracy': acc(a), 'P2 accuracy': acc(b),
+      },
+    });
+  }
+  dispose() {
+    this.games[1].dispose(); this.games[0].dispose(); // restore renderer settings in reverse order
+    this.bodies.forEach(b => b.dispose());
   }
 }

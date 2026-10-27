@@ -7,7 +7,7 @@ import { ctx as audio, sfxBus } from '../audio.js';
 import { KP } from '../pose.js';
 
 // Tennis: you're the near player in a floodlit stadium, seen from behind.
-// Your player runs to the ball on its own; you swing your arm to hit.
+// Step left/right for real to get to the ball (forward/back is automatic); swing your arm to hit.
 // Swing speed = power, sideways swing + timing = direction (early goes
 // cross-court, late goes down the line), an upward swing lobs.
 // Court in metres: you at +z, the CPU at -z, x to your right.
@@ -22,16 +22,19 @@ const rand = (a, b) => a + Math.random() * (b - a);
 // aim 0 (straight back at you) .. 1 (corners), swing = hand speed (shoulder widths/s)
 // that counts as a swing, win = timing window (s) either side of the ideal contact,
 // hold = how long a swing stays "live", assist 1 = your shots always land in,
-// run/reach = how fast your player runs and how far your racket reaches (m).
+// run = how fast your player moves forward/back to the ball (sideways is you:
+// you step left and right for real), reach = how far from your body the ball
+// can be and still count (m), react = how long the CPU takes to read your shot (s).
 export const TENNIS_DIFFS = {
-  Novice:       { games: 2, aiSpeed: 3.0, aiReach: 1.5,  aiErr: 0.22,  pace: 10,   aim: 0.0,  swing: 2.0, win: 0.32, hold: 0.55, assist: 1.0,  run: 9.0, reach: 2.0,  marker: true },
-  Beginner:     { games: 3, aiSpeed: 3.8, aiReach: 1.45, aiErr: 0.15,  pace: 12.5, aim: 0.25, swing: 2.4, win: 0.26, hold: 0.45, assist: 0.95, run: 8.0, reach: 1.85, marker: true },
-  Intermediate: { games: 3, aiSpeed: 4.8, aiReach: 1.4,  aiErr: 0.10,  pace: 15.5, aim: 0.5, swing: 2.8, win: 0.21, hold: 0.38, assist: 0.8,  run: 6.0, reach: 1.7,  marker: true },
-  Advanced:     { games: 3, aiSpeed: 5.8, aiReach: 1.35, aiErr: 0.07,  pace: 18.5, aim: 0.68,  swing: 3.2, win: 0.17, hold: 0.32, assist: 0.6,  run: 5.3, reach: 1.6,  marker: false },
-  Expert:       { games: 3, aiSpeed: 6.8, aiReach: 1.3,  aiErr: 0.05,  pace: 21.5, aim: 0.8, swing: 3.6, win: 0.14, hold: 0.27, assist: 0.45, run: 4.8, reach: 1.5,  marker: false },
-  Master:       { games: 3, aiSpeed: 7.8, aiReach: 1.25, aiErr: 0.03,  pace: 24.5, aim: 0.9, swing: 4.0, win: 0.11, hold: 0.23, assist: 0.3,  run: 4.5, reach: 1.4,  marker: false },
-  Grandmaster:  { games: 3, aiSpeed: 9.0, aiReach: 1.25, aiErr: 0.018, pace: 28,   aim: 1.0,  swing: 4.4, win: 0.09, hold: 0.2,  assist: 0.15, run: 4.3, reach: 1.35, marker: false },
+  Novice:       { games: 2, aiSpeed: 3.0, aiReach: 1.5,  aiErr: 0.22,  react: 0.5,  pace: 10,   aim: 0.0,  swing: 2.0, win: 0.32, hold: 0.55, assist: 1.0,  run: 9.0, reach: 2.7,  marker: true },
+  Beginner:     { games: 3, aiSpeed: 3.8, aiReach: 1.45, aiErr: 0.15,  react: 0.42, pace: 12.5, aim: 0.25, swing: 2.4, win: 0.26, hold: 0.45, assist: 0.95, run: 8.0, reach: 2.5,  marker: true },
+  Intermediate: { games: 3, aiSpeed: 4.8, aiReach: 1.4,  aiErr: 0.10,  react: 0.34, pace: 15.5, aim: 0.5,  swing: 2.8, win: 0.21, hold: 0.38, assist: 0.8,  run: 6.0, reach: 2.3,  marker: true },
+  Advanced:     { games: 3, aiSpeed: 5.8, aiReach: 1.35, aiErr: 0.07,  react: 0.27, pace: 18.5, aim: 0.68, swing: 3.2, win: 0.17, hold: 0.32, assist: 0.6,  run: 5.3, reach: 2.1,  marker: false },
+  Expert:       { games: 3, aiSpeed: 6.8, aiReach: 1.3,  aiErr: 0.05,  react: 0.22, pace: 21.5, aim: 0.8,  swing: 3.6, win: 0.14, hold: 0.27, assist: 0.45, run: 4.8, reach: 1.95, marker: false },
+  Master:       { games: 3, aiSpeed: 7.8, aiReach: 1.25, aiErr: 0.03,  react: 0.17, pace: 24.5, aim: 0.9,  swing: 4.0, win: 0.11, hold: 0.23, assist: 0.3,  run: 4.5, reach: 1.8,  marker: false },
+  Grandmaster:  { games: 3, aiSpeed: 9.0, aiReach: 1.25, aiErr: 0.018, react: 0.13, pace: 28,   aim: 1.0,  swing: 4.4, win: 0.09, hold: 0.2,  assist: 0.15, run: 4.3, reach: 1.7,  marker: false },
 };
+const STEP = 1.5;  // metres of court per shoulder width you step sideways
 const CALLS = ['Love', 'Fifteen', 'Thirty', 'Forty'];
 // a relaxed swing is ~6 shoulder widths/s, a full-speed one 18+
 const swingPower = (speed) => clamp((speed - 3) / 15, 0, 1);
@@ -330,6 +333,10 @@ export class TennisGame {
     this.landRing = new THREE.Mesh(new THREE.RingGeometry(0.2, 0.28, 32), ringMat(new THREE.Color(1.6, 1.8, 0.4)));
     this.hitRing = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.5, 40), ringMat(new THREE.Color(0.4, 1.6, 2.2)));
     for (const m of [this.landRing, this.hitRing]) { m.rotation.x = -Math.PI / 2; m.position.y = 0.012; scene.add(m); }
+    // where to stand for the coming ball: green when you're in range
+    this.zoneOk = new THREE.Color(0.3, 1.6, 0.6); this.zoneBad = new THREE.Color(1.6, 0.5, 0.3);
+    this.zone = new THREE.Mesh(new THREE.PlaneGeometry(1, 1.6), ringMat(this.zoneOk));
+    this.zone.rotation.x = -Math.PI / 2; scene.add(this.zone);
     // swing streak behind your racket
     this.streak = [];
 
@@ -448,13 +455,17 @@ export class TennisGame {
   // ---------- input: wrist positions + swing detection ----------
   // Swings are read off the pose wrists (with the forearm extended a little),
   // not the hand tracker: it's on every frame, so speeds don't jump.
+  // Positions are taken relative to your shoulders, so stepping sideways to the
+  // ball doesn't register as a swing.
   readHands() {
     const body = this.app.body, out = {};
+    const ls = body.body(KP.leftShoulder), rs = body.body(KP.rightShoulder);
+    const sx = ls.ok && rs.ok ? (ls.x + rs.x) / 2 : 0, sy = ls.ok && rs.ok ? (ls.y + rs.y) / 2 : 0;
     for (const [side, w, e] of [['L', KP.leftWrist, KP.leftElbow], ['R', KP.rightWrist, KP.rightElbow]]) {
       const W = body.body(w), E = body.body(e), h = this.hand[side];
       h.ok = W.ok;
       if (W.ok) {
-        const x = E.ok ? W.x + (W.x - E.x) * 0.35 : W.x, y = E.ok ? W.y + (W.y - E.y) * 0.35 : W.y;
+        const x = (E.ok ? W.x + (W.x - E.x) * 0.35 : W.x) - sx, y = (E.ok ? W.y + (W.y - E.y) * 0.35 : W.y) - sy;
         const seen = body.pts[w].seen;
         if (h.last && seen !== h.last.seen) {
           const dt = Math.max(0.012, seen - h.last.seen);
@@ -467,6 +478,18 @@ export class TennisGame {
       out[side] = h;
     }
     return out;
+  }
+
+  // Where you are standing, as a court x: the middle of the camera image is the
+  // middle of the court, and each shoulder width you step is STEP metres.
+  // null when you can't be seen.
+  bodyX() {
+    const b = this.app.body, a = this.app.pose.aspect;
+    const ls = b.screen(KP.leftShoulder), rs = b.screen(KP.rightShoulder), lh = b.screen(KP.leftHip), rh = b.screen(KP.rightHip);
+    let x = null;
+    if (ls.ok && rs.ok) x = (ls.x + rs.x) / 2; else if (lh.ok && rh.ok) x = (lh.x + rh.x) / 2;
+    if (x == null || !b.scale) return null;
+    return clamp((x - 0.5) * a / b.scale * STEP, -HW - 2.2, HW + 2.2);
   }
 
   updateSwing(dt) {
@@ -553,22 +576,23 @@ export class TennisGame {
     this.lastSpeed = { who: hitter, kmh: speedKmh, t: this.time };
     snd.pock(1, b.x / 6);
     this.spark(from);
-    if (hitter === 0) {          // CPU decides where to go
+    if (hitter === 0) {          // CPU decides where to go (after reading the shot)
+      const q = this.shotQuality || 0;
+      const rallyShot = this.state === 'rally' && !this.rally.serve;
+      this.ai.wait = rallyShot ? this.D.react * (1 + q) : this.D.react * 0.5;
+      this.ai.stretch = rallyShot ? 1 - 0.22 * q : 1;   // a clean, hard hit is harder to get a racket on
+      this.shotQuality = 0;
       const bn = this.predictBounce(), at = this.predictContact(-1);
       const out = !bn || Math.abs(bn.x) > HW + 0.03 || bn.z < -HL - 0.03 || bn.z > 0;
       this.ai.plan = { zc: at.z ?? -12.5, out };
       this.ai.tz = this.ai.plan.zc - 0.5;
       this.ai.tx = at.x != null ? at.x - 0.6 : this.ai.x;  // CPU's racket is on its right = your +x
       this.ai.decided = false;
-    } else {                     // auto-run you to the ball
+    } else {                     // you move forward/back automatically; sideways is up to you
       const bn = this.predictBounce(), at = this.predictContact(1);
       const zc = at.z ?? 12.4;
       this.me.contactZ = zc; this.me.tz = zc + 0.55;
       this.me.landing = bn; this.me.contact = at;
-      if (at.x != null) {
-        const side = this.hand.L.ok && this.hand.R.ok && this.hand.L.x < -1.2 && this.hand.R.x > -0.8 ? -1 : this.me.racketSide;
-        this.me.tx = at.x - side * 0.75;
-      }
       this.me.judged = false; this.me.swungEarly = false;
     }
   }
@@ -656,12 +680,20 @@ export class TennisGame {
     const dirx = clamp(sw.vx / (sw.speed + 1e-6), -1, 1);
     let aim = clamp(dirx * 0.75 - ballSide * timing * 0.55, -1, 1);
     const lob = sw.vy / (sw.speed + 1e-6) > 0.8;
+    const perfect = Math.abs(timing) < 0.35;
+    // A perfectly timed swing that isn't steered goes away from the CPU, and the
+    // CPU needs longer to read it: clean, hard hits can be winners.
+    if (perfect && !lob && Math.abs(dirx) < 0.45) {
+      const open = this.ai.x > 0.4 ? -1 : this.ai.x < -0.4 ? 1 : (Math.random() < 0.5 ? -1 : 1);
+      aim = open * lerp(0.6, 0.95, speedN);
+    }
+    this.shotQuality = perfect ? 0.5 + speedN : 0;
     let tx = aim * (HW - 0.55);
     let tz = lob ? -(HL - 1.2) : -(7.2 + speedN * 3.8);
     const err = (1 - D.assist) * (Math.abs(timing) * 1.1 + Math.random() * 0.45);
     tx += rand(-1, 1) * err * 2.2; tz += rand(-1, 1) * err * 2.6 - (Math.random() < 0.5 ? err * 1.2 : 0);
     if (D.assist >= 0.75) { tx = clamp(tx, -HW + 0.35, HW - 0.35); tz = clamp(tz, -HL + 0.4, -2.5); }
-    const speed = lob ? 9 : 12 + speedN * 21;
+    const speed = lob ? 9 : 12 + speedN * 21 + (perfect ? 3 : 0);
     const spin = lob ? -1 : clamp(sw.vy / (sw.speed + 1e-6), -0.3, 1) * 5;
     const weak = speedN < 0.12 && D.assist < 0.6 && Math.random() < 0.4;
     const clear = weak ? -0.15 : lob ? 2.2 : lerp(0.12, 0.45, D.assist);
@@ -729,7 +761,7 @@ export class TennisGame {
     if (!plan || b.vz > 0) return;
     if (!ai.decided) { ai.decided = true; ai.leave = plan.out && Math.random() < 0.5 + D.aim * 0.5; } // good players let out balls go
     if (ai.leave) { ai.tx = ai.x; return; }
-    const reach = D.aiReach;
+    const reach = D.aiReach * (ai.stretch ?? 1);
     if (this.rally.bounces >= 1 && b.z <= plan.zc + 0.25 && b.z > plan.zc - 1.5 && b.y < 2.8) {
       if (Math.abs(b.x - ai.x) <= reach) this.aiHit();
     }
@@ -744,13 +776,16 @@ export class TennisGame {
     const lag = Math.min(0.18, this.app.pose.stats.latency / 1000 * 0.8 + 0.03);
     const tTo = (zc - b.z) / b.vz + lag;
     const reach = Math.abs(b.x - me.x) <= D.reach && b.y < 2.9 && b.y > 0.1;
+    if (!reach && Math.abs(tTo) <= D.win && this.swing.active > 0 && !me.judged) {
+      me.judged = true; this.feedback = { text: b.x > me.x ? 'STEP RIGHT ▶' : '◀ STEP LEFT', color: '#ff6b8b', t: this.time };
+    }
     if (this.swing.active > 0 && tTo > D.win + 0.25 && !me.swungEarly) { me.swungEarly = true; this.feedback = { text: 'TOO EARLY', color: '#ff9f6b', t: this.time }; }
     if (Math.abs(tTo) <= D.win && reach && this.swing.active > 0 && (this.rally.bounces >= 1 || b.z > 4)) {
       return this.playerHit(clamp(tTo / D.win, -1, 1));
     }
     if (tTo < -D.win && !me.judged) {
       me.judged = true;
-      this.feedback = { text: reach ? 'SWING!' : 'TOO FAR', color: '#ff6b8b', t: this.time };
+      this.feedback = { text: reach ? 'SWING!' : b.x > me.x ? 'STEP RIGHT ▶' : '◀ STEP LEFT', color: '#ff6b8b', t: this.time };
     }
   }
 
@@ -823,13 +858,19 @@ export class TennisGame {
 
   movePlayers(dt) {
     const me = this.me, ai = this.ai, D = this.D;
-    // you: run to the ball while it's coming, drift back to the middle otherwise
-    if (this.state === 'rally' && this.rally?.hitter === 0) { me.tx = 0.3 * me.x; me.tz = 12.6; }
-    const mvx = clamp(me.tx - me.x, -D.run * dt, D.run * dt), mvz = clamp(me.tz - me.z, -D.run * dt, D.run * dt);
+    // you: sideways follows your real position (except while you serve), forward/back is automatic
+    if (this.state === 'rally' && this.rally?.hitter === 0) me.tz = 12.6;
+    const bx = this.bodyX();
+    const serving = this.state === 'serve' && this.server === 0;
+    if (bx != null && !serving) me.tx = bx;
+    const mvx = clamp(me.tx - me.x, -12 * dt, 12 * dt), mvz = clamp(me.tz - me.z, -D.run * dt, D.run * dt);
     me.x += mvx; me.z += mvz; me.runPhase += Math.hypot(mvx, mvz) * 4.2;
     if (this.state === 'rally' && this.rally?.hitter === 1) { ai.tx = clamp(-me.x * 0.3, -2, 2); ai.tz = -12.6; }
-    const avx = clamp(ai.tx - ai.x, -D.aiSpeed * dt, D.aiSpeed * dt), avz = clamp(ai.tz - ai.z, -D.aiSpeed * dt, D.aiSpeed * dt);
-    ai.x += avx; ai.z += avz; ai.runPhase += Math.hypot(avx, avz) * 4.2;
+    if (ai.wait > 0) ai.wait -= dt;
+    else {
+      const avx = clamp(ai.tx - ai.x, -D.aiSpeed * dt, D.aiSpeed * dt), avz = clamp(ai.tz - ai.z, -D.aiSpeed * dt, D.aiSpeed * dt);
+      ai.x += avx; ai.z += avz; ai.runPhase += Math.hypot(avx, avz) * 4.2;
+    }
     ai.swing = Math.max(0, ai.swing - dt); me.swingAnim = Math.max(0, me.swingAnim - dt);
   }
 
@@ -894,6 +935,10 @@ export class TennisGame {
     if (me.landing) this.landRing.position.set(me.landing.x, 0.012, me.landing.z);
     this.hitRing.material.opacity = show && me.contact?.x != null ? 0.55 + 0.3 * Math.sin(this.time * 10) : 0;
     if (me.contact?.x != null) this.hitRing.position.set(me.contact.x, 0.012, me.contactZ);
+    const inZone = me.contact?.x != null && Math.abs(me.contact.x - me.x) <= this.D.reach;
+    this.zone.material.opacity = show && me.contact?.x != null ? 0.22 : 0;
+    this.zone.material.color.copy(inZone ? this.zoneOk : this.zoneBad);
+    if (me.contact?.x != null) { this.zone.position.set(me.contact.x, 0.011, me.contactZ); this.zone.scale.x = this.D.reach * 2; }
     // camera: behind and above you, easing with your movement
     // (time-based easing, and snapped on the first frame, so slow PCs don't start inside your head)
     const cam = this.camera, k = this.look ? 1 - Math.exp(-(this.lastDt || 0.016) * 5) : 1;
@@ -953,6 +998,26 @@ export class TennisGame {
     if (this.prompt && this.state === 'serve') {
       g.font = '800 26px system-ui'; g.fillStyle = '#fff'; g.shadowColor = '#000'; g.shadowBlur = 8;
       g.fillText(this.prompt, W / 2, H * 0.82); g.shadowBlur = 0;
+    }
+    // where you're standing on the court (and, on guided levels, where the ball is going)
+    {
+      const bw = Math.min(520, W * 0.5), bx0 = (W - bw) / 2, by = H - 46, span = HW + 2.2;
+      const X = (x) => bx0 + (x + span) / (2 * span) * bw;
+      g.fillStyle = 'rgba(8,12,34,.7)'; g.beginPath(); g.roundRect(bx0 - 10, by - 16, bw + 20, 34, 10); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.18)'; g.fillRect(X(-HW), by - 2, X(HW) - X(-HW), 4);
+      const me = this.me, coming = this.state === 'rally' && this.rally?.hitter === 1 && me.contact?.x != null;
+      if (coming && this.D.marker) {
+        const ok = Math.abs(me.contact.x - me.x) <= this.D.reach;
+        g.fillStyle = ok ? 'rgba(80,255,150,.45)' : 'rgba(255,120,80,.45)';
+        g.fillRect(X(me.contact.x - this.D.reach), by - 10, X(me.contact.x + this.D.reach) - X(me.contact.x - this.D.reach), 20);
+        if (!ok) {
+          g.font = '900 30px system-ui'; g.fillStyle = '#ffb36b'; g.shadowColor = '#000'; g.shadowBlur = 10;
+          g.fillText(me.contact.x > me.x ? 'STEP RIGHT ▶' : '◀ STEP LEFT', W / 2, by - 30); g.shadowBlur = 0;
+        }
+      }
+      g.fillStyle = '#2fa8ff'; g.beginPath(); g.arc(X(me.x), by, 9, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+      g.font = '700 11px system-ui'; g.fillStyle = '#c9d4ff'; g.fillText('YOU', X(me.x), by + 26);
     }
     // swing meter: hand speed against the swing threshold
     const mx = 40, my = H - 64, mh = 170;
